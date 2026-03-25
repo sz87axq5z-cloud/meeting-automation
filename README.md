@@ -47,3 +47,20 @@ python -m unittest discover -s tests -p 'test_*.py' -v
 3. Vercel の「Environment Variables」に `.env.example` と同じキーを登録
 4. デプロイ後、`https://xxx.vercel.app/health` で動作確認
 
+### Webhook 認証（`WEBHOOK_SECRET`）
+
+`POST /webhook` は、環境変数 `WEBHOOK_SECRET` と次のいずれかが一致すれば通ります（優先順）。
+
+1. クエリ `?token=`（従来どおり）
+2. ヘッダー `X-Webhook-Secret: <secret>`
+3. ヘッダー `X-Webhook-Token: <secret>`
+4. ヘッダー `Authorization: Bearer <secret>`
+
+tl;dv が登録 URL のクエリを POST に付けない場合は、tl;dv 側でカスタムヘッダーを付与できる設定があれば上記ヘッダーに `WEBHOOK_SECRET` と同じ値を設定してください。
+
+### Webhook の二重受信と失敗通知（任意）
+
+Vercel ではサーバーが都度別インスタンスになるため、**同じ tl;dv 通知の再送**を防ぐには共有ストアが必要です。[Upstash](https://upstash.com/) などで Redis を作成し、コンソールに表示される **REST URL** と **Token** を環境変数 `UPSTASH_REDIS_REST_URL` / `UPSTASH_REDIS_REST_TOKEN` に設定してください（`.env.example` 参照）。未設定の場合は従来どおり重複防止はオフです。
+
+設定済みのときは Webhook JSON の `id` が必須になり、再送は `{"status":"duplicate"}` で応答します。パイプラインがどこかで失敗した場合は、**要約 PNG と同じ Slack チャンネル**に短文のエラー通知が送られます。
+

@@ -31,6 +31,12 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
     # 要約 PNG 用。未設定時は macOS/Linux の一般的な日本語フォントを自動検出
     summary_font_path: str | None = None
+    # Webhook 冪等用（Upstash Redis REST）。未設定なら重複防止はオフ
+    upstash_redis_rest_url: str | None = None
+    upstash_redis_rest_token: str | None = None
+    # SET … EX の秒数（デフォルト 7 日）
+    dedupe_webhook_ttl_seconds: int = 604_800
+    dedupe_meeting_ttl_seconds: int = 604_800
 
     @field_validator("trello_board_id", "trello_list_id", mode="before")
     @classmethod

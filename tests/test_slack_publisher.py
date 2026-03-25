@@ -66,6 +66,31 @@ class TestSlackPublisher(unittest.TestCase):
         self.assertIn("Trello", comment)
         self.assertIn("trello.com", comment)
 
+    @patch.object(slack_publisher, "WebClient")
+    @patch.object(slack_publisher, "settings")
+    def test_post_pipeline_failure_message(
+        self,
+        mock_settings: MagicMock,
+        mock_client_cls: MagicMock,
+    ) -> None:
+        mock_settings.slack_bot_token = "xoxb-test"
+        mock_settings.slack_channel_id = "C111"
+        mock_inst = MagicMock()
+        mock_client_cls.return_value = mock_inst
+
+        slack_publisher.post_pipeline_failure_message(
+            meeting_id="mid",
+            stage="Claude",
+            error_detail="RuntimeError: oops",
+        )
+
+        mock_inst.chat_postMessage.assert_called_once()
+        kw = mock_inst.chat_postMessage.call_args.kwargs
+        self.assertEqual(kw["channel"], "C111")
+        self.assertIn("会議自動化エラー", kw["text"])
+        self.assertIn("mid", kw["text"])
+        self.assertIn("Claude", kw["text"])
+
 
 if __name__ == "__main__":
     unittest.main()

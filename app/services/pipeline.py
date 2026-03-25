@@ -1,13 +1,23 @@
 import logging
 
 from app.services.claude_processor import summarize_and_extract_tasks
+from app.services.dedupe import mark_meeting_completed, meeting_already_completed
 from app.services.image_generator import render_summary_png
-from app.services.slack_publisher import post_meeting_summary_png
+from app.services.slack_publisher import (
+    post_meeting_summary_png,
+    post_pipeline_failure_message,
+)
 from app.services.tldv_client import fetch_meeting_context
 from app.services.trello_client import create_cards_for_tasks, parse_tasks_from_claude_text
 
 
 logger = logging.getLogger(__name__)
+
+
+def _exc_detail(exc: Exception | None) -> str | None:
+    if exc is None:
+        return None
+    return f"{type(exc).__name__}: {exc}"
 
 
 def _ensure_default_logging() -> None:
@@ -32,10 +42,22 @@ def run_pipeline(meeting_id: str) -> None:
     """
     _ensure_default_logging()
     logger.info("run_pipeline start meeting_id=%s", meeting_id)
+    if meeting_already_completed(meeting_id):
+        logger.info(
+            "run_pipeline skip meeting already completed meeting_id=%s",
+            meeting_id,
+        )
+        return
+
     try:
         meeting_info, transcript = fetch_meeting_context(meeting_id)
-    except Exception:
+    except Exception as e:
         logger.exception("tl;dv fetch failed meeting_id=%s", meeting_id)
+        post_pipeline_failure_message(
+            meeting_id=meeting_id,
+            stage="tl;dv",
+            error_detail=_exc_detail(e),
+        )
         return
 
     tchars = len(transcript.strip())
@@ -46,8 +68,13 @@ def run_pipeline(meeting_id: str) -> None:
 
     try:
         result = summarize_and_extract_tasks(transcript, meeting_info)
-    except Exception:
+    except Exception as e:
         logger.exception("Claude failed meeting_id=%s", meeting_id)
+        post_pipeline_failure_message(
+            meeting_id=meeting_id,
+            stage="Claude",
+            error_detail=_exc_detail(e),
+        )
         return
 
     raw_len = len(result.get("raw_text") or "")
@@ -55,8 +82,13 @@ def run_pipeline(meeting_id: str) -> None:
 
     try:
         png_bytes = render_summary_png(meeting_info, result.get("raw_text") or "")
-    except Exception:
+    except Exception as e:
         logger.exception("summary PNG failed meeting_id=%s", meeting_id)
+        post_pipeline_failure_message(
+            meeting_id=meeting_id,
+            stage="画像",
+            error_detail=_exc_detail(e),
+        )
         return
 
     logger.info(
@@ -80,8 +112,13 @@ def run_pipeline(meeting_id: str) -> None:
                 meeting_id,
                 len(trello_urls),
             )
-        except Exception:
+        except Exception as e:
             logger.exception("Trello failed meeting_id=%s", meeting_id)
+            post_pipeline_failure_message(
+                meeting_id=meeting_id,
+                stage="Trello",
+                error_detail=_exc_detail(e),
+            )
     else:
         logger.info("run_pipeline trello skip no parsed tasks meeting_id=%s", meeting_id)
 
@@ -92,12 +129,18 @@ def run_pipeline(meeting_id: str) -> None:
             meeting_info=meeting_info,
             trello_urls=trello_urls or None,
         )
-    except Exception:
+    except Exception as e:
         logger.exception("Slack post failed meeting_id=%s", meeting_id)
+        post_pipeline_failure_message(
+            meeting_id=meeting_id,
+            stage="Slack",
+            error_detail=_exc_detail(e),
+        )
         return
 
+    mark_meeting_completed(meeting_id)
     logger.info(
-        "run_pipeline slack ok meeting_id=%s slack_file_id=%s",
+        "run_pipeline SUCCESS meeting_id=%s slack_file_id=%s",
         meeting_id,
         file_id,
     )

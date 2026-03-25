@@ -74,6 +74,54 @@ def _build_initial_comment(
     return base
 
 
+def post_pipeline_failure_message(
+    *,
+    meeting_id: str,
+    stage: str,
+    error_detail: str | None = None,
+) -> None:
+    """
+    パイプライン失敗を SLACK_CHANNEL_ID にテキストで通知する。
+    通知自体が失敗しても例外は出さない（ログのみ）。
+    """
+    text_lines = [
+        ":warning: *会議自動化エラー*",
+        f"• 会議 ID: `{meeting_id}`",
+        f"• 段階: `{stage}`",
+    ]
+    if error_detail:
+        detail = error_detail.strip()
+        if len(detail) > 400:
+            detail = detail[:397] + "…"
+        text_lines.append(f"• 詳細: ```{detail}```")
+    text = "\n".join(text_lines)
+
+    try:
+        client = _slack_web_client()
+        client.chat_postMessage(
+            channel=settings.slack_channel_id,
+            text=text,
+        )
+        logger.info(
+            "slack pipeline failure message posted meeting_id=%s stage=%s",
+            meeting_id,
+            stage,
+        )
+    except SlackApiError as e:
+        logger.error(
+            "slack chat_postMessage failed meeting_id=%s stage=%s response=%s",
+            meeting_id,
+            stage,
+            e.response,
+        )
+    except Exception:
+        logger.exception(
+            "slack pipeline failure message unexpected error meeting_id=%s stage=%s",
+            meeting_id,
+            stage,
+        )
+
+
 def post_meeting_summary_png(
     *,
     png_bytes: bytes,
