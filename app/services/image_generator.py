@@ -1,12 +1,17 @@
 """
 Claude の要約テキストを議事サマリー用 PNG にレンダリングする。
-日本語は TrueType のフォントが必要（macOS のヒラギノ / Noto 等、または SUMMARY_FONT_PATH）。
+日本語は TrueType が必要。優先順: SUMMARY_FONT_PATH → fonts/ 同梱 →
+SUMMARY_FONT_DOWNLOAD_URL（既定は Noto Sans JP）で /tmp キャッシュ → OS 候補。
 """
 
 from __future__ import annotations
 
 import logging
 import os
+import ssl
+import tempfile
+import urllib.error
+import urllib.request
 from io import BytesIO
 from pathlib import Path
 from typing import Any, Dict, List, Tuple
@@ -28,6 +33,15 @@ LINE_GAP_BODY = 6
 MAX_IMAGE_HEIGHT = 14_000
 TRUNCATION_NOTICE = "\n\n…（画像の高さ上限のため省略）"
 
+# リポジトリ直下 fonts/ に NotoSansJP-Regular.otf を置いた場合（OFL、googlefonts/noto-cjk）
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
+_BUNDLED_JP_FONT = _PROJECT_ROOT / "fonts" / "NotoSansJP-Regular.otf"
+_DEFAULT_JP_FONT_URL = (
+    "https://raw.githubusercontent.com/googlefonts/noto-cjk/main/Sans/OTF/Japanese/NotoSansJP-Regular.otf"
+)
+_TMP_FONT_NAME = "meeting_automation_NotoSansJP-Regular.otf"
+_MIN_FONT_BYTES = 500_000
+
 # macOS / 一般的な Linux の日本語フォント候補（先頭から存在チェック）
 _FONT_CANDIDATES: Tuple[str, ...] = (
     "/System/Library/Fonts/ヒラギノ角ゴシック W3.ttc",
@@ -43,6 +57,54 @@ def _truetype(path: str, size: int) -> ImageFont.FreeTypeFont:
     return ImageFont.truetype(path, size)
 
 
+def _cached_noto_font_path() -> Path:
+    return Path(tempfile.gettempdir()) / _TMP_FONT_NAME
+
+
+def _noto_download_url() -> str | None:
+    """
+    未設定: 既定 URL。空文字で明示: ダウンロードしない。
+    """
+    raw = os.environ.get("SUMMARY_FONT_DOWNLOAD_URL")
+    if raw is None:
+        return _DEFAULT_JP_FONT_URL
+    s = raw.strip()
+    return None if s == "" else s
+
+
+def _ensure_noto_sans_jp_otf() -> str | None:
+    """
+    サーバに CJK フォントが無い場合、Noto Sans JP を HTTPS で一度取得し /tmp に保存する。
+    """
+    cache = _cached_noto_font_path()
+    if cache.is_file() and cache.stat().st_size >= _MIN_FONT_BYTES:
+        return str(cache)
+
+    url = _noto_download_url()
+    if not url:
+        return None
+
+    try:
+        ctx = ssl.create_default_context()
+        req = urllib.request.Request(
+            url,
+            headers={"User-Agent": "meeting-automation-summary-font/1.0"},
+        )
+        with urllib.request.urlopen(req, context=ctx, timeout=90) as resp:
+            data = resp.read()
+        if len(data) < _MIN_FONT_BYTES:
+            logger.warning(
+                "要約用フォントの取得結果が小さすぎます (%d bytes)。URL を確認してください。",
+                len(data),
+            )
+            return None
+        cache.write_bytes(data)
+        return str(cache)
+    except (OSError, urllib.error.URLError, TimeoutError) as exc:
+        logger.warning("要約用フォントのダウンロードに失敗しました: %s", exc)
+        return None
+
+
 def _resolve_font(size: int) -> Tuple[ImageFont.FreeTypeFont, bool]:
     """
     (font, is_bitmap_fallback)
@@ -54,6 +116,19 @@ def _resolve_font(size: int) -> Tuple[ImageFont.FreeTypeFont, bool]:
         except OSError:
             logger.warning("SUMMARY_FONT_PATH が読めません: %s", env_path)
 
+    if _BUNDLED_JP_FONT.is_file():
+        try:
+            return _truetype(str(_BUNDLED_JP_FONT), size), False
+        except OSError:
+            logger.warning("同梱フォントが読めません: %s", _BUNDLED_JP_FONT)
+
+    dl_path = _ensure_noto_sans_jp_otf()
+    if dl_path:
+        try:
+            return _truetype(dl_path, size), False
+        except OSError:
+            logger.warning("キャッシュしたフォントが読めません: %s", dl_path)
+
     for candidate in _FONT_CANDIDATES:
         if Path(candidate).is_file():
             try:
@@ -63,7 +138,7 @@ def _resolve_font(size: int) -> Tuple[ImageFont.FreeTypeFont, bool]:
 
     logger.warning(
         "日本語向け TrueType が見つかりません。bitmap フォントにフォールバックします。"
-        " SUMMARY_FONT_PATH に .ttf / .ttc を指定してください。"
+        " SUMMARY_FONT_PATH、fonts/NotoSansJP-Regular.otf、または SUMMARY_FONT_DOWNLOAD_URL を確認してください。"
     )
     return ImageFont.load_default(), True
 

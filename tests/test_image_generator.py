@@ -1,7 +1,9 @@
+import os
 import sys
+import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from PIL import Image, ImageDraw, ImageFont
 
@@ -35,6 +37,60 @@ class TestRenderSummaryPng(unittest.TestCase):
         font = ImageFont.load_default()
         lines = image_generator._wrap_to_width(draw, "a\n\nb", font, 300)
         self.assertEqual(lines, ["a", "", "b"])
+
+    def test_noto_download_url_default_and_disable(self) -> None:
+        with patch.dict(os.environ):
+            os.environ.pop("SUMMARY_FONT_DOWNLOAD_URL", None)
+            self.assertEqual(
+                image_generator._noto_download_url(),
+                image_generator._DEFAULT_JP_FONT_URL,
+            )
+        with patch.dict(os.environ, {"SUMMARY_FONT_DOWNLOAD_URL": ""}):
+            self.assertIsNone(image_generator._noto_download_url())
+        with patch.dict(os.environ, {"SUMMARY_FONT_DOWNLOAD_URL": "  "}):
+            self.assertIsNone(image_generator._noto_download_url())
+        with patch.dict(
+            os.environ,
+            {"SUMMARY_FONT_DOWNLOAD_URL": "https://example.com/font.otf"},
+        ):
+            self.assertEqual(
+                image_generator._noto_download_url(),
+                "https://example.com/font.otf",
+            )
+
+    def test_ensure_noto_writes_cache(self) -> None:
+        fake_body = b"x" * image_generator._MIN_FONT_BYTES
+        mock_resp = MagicMock()
+        mock_resp.read.return_value = fake_body
+        mock_cm = MagicMock()
+        mock_cm.__enter__.return_value = mock_resp
+        mock_cm.__exit__.return_value = None
+
+        with tempfile.TemporaryDirectory() as tmp:
+            cache = Path(tmp) / image_generator._TMP_FONT_NAME
+
+            with patch.dict(os.environ, {"SUMMARY_FONT_DOWNLOAD_URL": "https://x/f.otf"}):
+                with patch.object(image_generator, "_cached_noto_font_path", return_value=cache):
+                    with patch.object(
+                        image_generator.urllib.request,
+                        "urlopen",
+                        return_value=mock_cm,
+                    ):
+                        path = image_generator._ensure_noto_sans_jp_otf()
+
+            self.assertEqual(path, str(cache))
+            self.assertTrue(cache.is_file())
+            self.assertEqual(cache.read_bytes(), fake_body)
+
+    def test_ensure_noto_skips_when_download_disabled(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            cache = Path(tmp) / image_generator._TMP_FONT_NAME
+            with patch.dict(os.environ, {"SUMMARY_FONT_DOWNLOAD_URL": ""}):
+                with patch.object(image_generator, "_cached_noto_font_path", return_value=cache):
+                    with patch.object(image_generator.urllib.request, "urlopen") as mock_open:
+                        out = image_generator._ensure_noto_sans_jp_otf()
+            self.assertIsNone(out)
+            mock_open.assert_not_called()
 
 
 if __name__ == "__main__":
