@@ -33,10 +33,12 @@ class TestRenderSummaryPng(unittest.TestCase):
         self.assertTrue(png.startswith(b"\x89PNG\r\n\x1a\n"))
         self.assertGreater(len(png), 200)
         im = Image.open(BytesIO(png)).convert("RGB")
-        # 要件定義どおりダーク背景（旧ライトグレー #f4f4f5 ではない）
-        # テキスト領域に入らない左上（MARGIN より手前は全面 COL_BG）
+        # 上部ダークヒーロー + 下部ライト本文（Truspo 風）
         px = im.getpixel((10, 10))
-        self.assertLess(sum(px) / 3, 35)
+        self.assertLess(sum(px) / 3, 55)
+        if im.height > 280:
+            mid = im.getpixel((im.width // 2, min(im.height - 40, 220)))
+            self.assertGreater(sum(mid) / 3, 180)
 
     def test_parse_summary_sections(self) -> None:
         raw = "前置きのみ"
@@ -50,6 +52,17 @@ class TestRenderSummaryPng(unittest.TestCase):
         self.assertEqual(sec[0][0], "第一")
         self.assertIn("内容A", sec[0][1])
         self.assertEqual(sec[1][0], "第二")
+
+    def test_split_insight_section(self) -> None:
+        rest, ins = image_generator._split_insight_section(
+            [("概要", "導入"), ("要点", "本文")],
+        )
+        self.assertEqual(ins, "導入")
+        self.assertEqual(len(rest), 1)
+        self.assertEqual(rest[0][0], "要点")
+        r2, i2 = image_generator._split_insight_section([("要点", "のみ")])
+        self.assertIsNone(i2)
+        self.assertEqual(len(r2), 1)
 
     def test_parse_preamble_and_sections(self) -> None:
         raw = "導入文です。\n\n## 要点\n- あ"

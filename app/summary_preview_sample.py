@@ -12,7 +12,9 @@ SAMPLE_MEETING: Dict[str, Any] = {
     "participants": ["太郎", "花子"],
 }
 
-SAMPLE_SUMMARY = """## 決定事項
+SAMPLE_SUMMARY = """会議では次回リリースの目標日と、要約 PNG のドキュメント調デザイン（サマリ帯＋カード）を確認した。Slack 連携は本番環境で問題なし。
+
+## 決定事項
 - 次回リリースは 4/1 を目標にする
 - デザインは要件定義 HTML のダークテーマに合わせた
 

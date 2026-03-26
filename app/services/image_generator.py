@@ -1,6 +1,7 @@
 """
 Claude の要約テキストを議事サマリー用 PNG にレンダリングする。
-要件定義 HTML（ダークテーマ・カード・アクセント）に近いビジュアル。
+トラスポ上流設計図解（https://truspo-ca-system-design.surge.sh/）系の
+ダークヒーロー + ライト本文・サマリ帯・白カードのドキュメント調 UI。
 日本語 TrueType: SUMMARY_FONT_PATH → fonts/ 同梱 → SUMMARY_FONT_DOWNLOAD_URL → OS 候補。
 """
 
@@ -26,36 +27,60 @@ from app.formatting import format_happened_at_display
 
 logger = logging.getLogger(__name__)
 
-# 要件定義_図解_v2.html の CSS 変数に合わせたパレット
-COL_BG = "#0a0c10"
-COL_SURFACE = "#13161f"
-COL_BORDER = "#252d40"
-COL_TEXT = "#e2e8f0"
+# トラスポ CA 上流設計図解風（ライトドキュメント + ネイビーヒーロー）
+COL_PAGE_BG = "#e8ecf4"
+COL_HERO_BG = "#1e293b"
+COL_HERO_LINE = "#3b82f6"
+COL_TEXT = "#1e293b"
+COL_TEXT_ON_HERO = "#ffffff"
 COL_MUTED = "#64748b"
-# .flow-step .s1 … s6 のアクセント（左ライン・見出し色）
+COL_MUTED_ON_HERO = "#94a3b8"
+COL_CARD = "#ffffff"
+COL_CARD_INNER = "#f1f5f9"
+COL_BORDER = "#e2e8f0"
+COL_BORDER_SOFT = "#f1f5f9"
+COL_SHADOW_SOFT = "#b8c4d4"
+COL_INSIGHT_BAR = "#2563eb"
+COL_INSIGHT_LABEL = "#2563eb"
+COL_PILL_BG = "#ffffff"
+COL_FLOW_MARK = "#94a3b8"
+# セクション左ライン・箇条書き（青〜ティール系で統一感）
 COL_ACCENTS: Tuple[str, ...] = (
-    "#06b6d4",
-    "#8b5cf6",
-    "#f59e0b",
-    "#3b82f6",
-    "#10b981",
-    "#ef4444",
+    "#2563eb",
+    "#0ea5e9",
+    "#4f46e5",
+    "#0891b2",
+    "#0369a1",
+    "#6366f1",
 )
 
 DEFAULT_WIDTH = 1080
 MARGIN = 48
-CARD_GAP = 18
+HERO_PAD_X = 52
+HERO_PAD_TOP = 36
+HERO_PAD_BOTTOM = 32
+HERO_ACCENT_LINE_H = 4
+CONTENT_TOP_GAP = 28
+CARD_GAP = 20
 CARD_PAD = 22
 CARD_RADIUS = 14
-ACCENT_BAR_W = 5
-KICKER_SIZE = 17
-MEETING_TITLE_SIZE = 36
+ACCENT_BAR_W = 4
+STEP_PILL_W = 38
+STEP_PILL_H = 30
+TITLE_GAP_AFTER_PILL = 14
+INNER_PAD = 18
+INNER_RADIUS = 10
+INSIGHT_BAR_W = 5
+FLOW_ARROW_GAP = 6
+KICKER_SIZE = 16
+MEETING_TITLE_SIZE = 40
 DATE_SIZE = 20
-SECTION_SIZE = 23
-BODY_SIZE = 20
-LINE_GAP_TIGHT = 6
+SECTION_SIZE = 25
+BODY_SIZE = 21
+BADGE_NUM_SIZE = 16
+INSIGHT_LABEL_SIZE = 15
+LINE_GAP_TIGHT = 7
 LINE_GAP_SECTION = 10
-HEADER_GAP_AFTER_DATE = 28
 MAX_IMAGE_HEIGHT = 14_000
 TRUNCATION_NOTICE = "\n\n…（画像の高さ上限のため省略）"
 
@@ -170,6 +195,8 @@ class _FontSet:
     date: ImageFont.ImageFont
     section: ImageFont.ImageFont
     body: ImageFont.ImageFont
+    badge: ImageFont.ImageFont
+    label: ImageFont.ImageFont
 
 
 def _load_font_set() -> _FontSet:
@@ -178,7 +205,9 @@ def _load_font_set() -> _FontSet:
     d, _ = _resolve_font(DATE_SIZE)
     s, _ = _resolve_font(SECTION_SIZE)
     b, _ = _resolve_font(BODY_SIZE)
-    return _FontSet(kicker=k, title=t, date=d, section=s, body=b)
+    bg, _ = _resolve_font(BADGE_NUM_SIZE)
+    lb, _ = _resolve_font(INSIGHT_LABEL_SIZE)
+    return _FontSet(kicker=k, title=t, date=d, section=s, body=b, badge=bg, label=lb)
 
 
 def _strip_inline_markdown(text: str) -> str:
@@ -214,6 +243,18 @@ def parse_summary_sections(raw: str) -> List[Tuple[str | None, str]]:
         out.append((h or "（無題）", _strip_inline_markdown(body)))
 
     return out if out else [(None, _strip_inline_markdown(text))]
+
+
+def _split_insight_section(
+    sections: List[Tuple[str | None, str]],
+) -> tuple[List[Tuple[str | None, str]], str | None]:
+    """先頭が「概要」のとき本文をサマリ帯用に切り出す（Truspo のサマリ欄相当）。"""
+    if not sections:
+        return [], None
+    h0, b0 = sections[0]
+    if h0 == "概要" and (b0 or "").strip():
+        return sections[1:], b0
+    return sections, None
 
 
 def _text_line_height(font: ImageFont.ImageFont, draw: ImageDraw.ImageDraw) -> int:
@@ -262,53 +303,226 @@ def _content_inner_width(width: int) -> int:
     return width - MARGIN * 2
 
 
-def _card_inner_width(width: int) -> int:
-    return _content_inner_width(width) - CARD_PAD * 2 - ACCENT_BAR_W - 12
+def _card_content_box(x0_card: int, x1_card: int) -> Tuple[int, int]:
+    """カード内の本文エリア左端と幅（アクセントバー右）。"""
+    left = x0_card + CARD_PAD + ACCENT_BAR_W + 12
+    w = x1_card - CARD_PAD - left
+    return left, w
 
 
-def _draw_card_fixed_lines(
+_BULLET_LINE_RE = re.compile(r"^[\-\*・]\s*")
+
+
+def _measure_section_card(
+    draw_d: ImageDraw.ImageDraw,
+    hd: str | None,
+    body: str,
+    fonts: _FontSet,
+    content_w: int,
+    sec_lh: int,
+    body_lh: int,
+) -> Tuple[List[str], List[str], int]:
+    title_max = content_w - STEP_PILL_W - 10 if hd else content_w
+    hl = _wrap_to_width(draw_d, hd, fonts.section, title_max) if hd else []
+    inner_text_w = max(100, content_w - 2 * INNER_PAD)
+    bl = _wrap_to_width(draw_d, body, fonts.body, inner_text_w)
+    if hd:
+        title_block_h = max(STEP_PILL_H, _measure_block_height(hl, sec_lh, LINE_GAP_TIGHT))
+        top_stack = CARD_PAD + title_block_h + TITLE_GAP_AFTER_PILL
+    else:
+        top_stack = CARD_PAD
+    body_h = _measure_block_height(bl, body_lh, LINE_GAP_TIGHT)
+    inner_h = 2 * INNER_PAD + body_h
+    card_h = top_stack + inner_h + CARD_PAD
+    return hl, bl, card_h
+
+
+def _card_height_from_lines(
+    hd: str | None,
+    hl: List[str],
+    bl: List[str],
+    sec_lh: int,
+    body_lh: int,
+) -> int:
+    if hd:
+        title_block_h = max(STEP_PILL_H, _measure_block_height(hl, sec_lh, LINE_GAP_TIGHT))
+        top_stack = CARD_PAD + title_block_h + TITLE_GAP_AFTER_PILL
+    else:
+        top_stack = CARD_PAD
+    body_h = _measure_block_height(bl, body_lh, LINE_GAP_TIGHT)
+    return top_stack + 2 * INNER_PAD + body_h + CARD_PAD
+
+
+def _measure_insight_block(
+    draw_d: ImageDraw.ImageDraw,
+    body: str,
+    fonts: _FontSet,
+    content_w: int,
+    label_lh: int,
+    body_lh: int,
+) -> Tuple[List[str], int]:
+    inner_text_w = max(100, content_w - 2 * CARD_PAD - INSIGHT_BAR_W - 14)
+    bl = _wrap_to_width(draw_d, body, fonts.body, inner_text_w)
+    body_h = _measure_block_height(bl, body_lh, LINE_GAP_TIGHT)
+    h = CARD_PAD + label_lh + 12 + body_h + CARD_PAD
+    return bl, h
+
+
+def _draw_insight_block(
     draw: ImageDraw.ImageDraw,
     x0: int,
     y0: int,
     x1: int,
-    y1: int,
-    accent: str,
-    heading: str | None,
-    heading_lines: List[str],
-    body_lines: List[str],
-    inner_left: int,
-    inner_w: int,
+    insight_h: int,
+    bl: List[str],
     fonts: _FontSet,
 ) -> None:
+    y1 = y0 + insight_h
+    draw.rounded_rectangle(
+        [x0 + 2, y0 + 2, x1 + 2, y1 + 2],
+        radius=CARD_RADIUS,
+        fill=COL_SHADOW_SOFT,
+    )
     draw.rounded_rectangle(
         [x0, y0, x1, y1],
         radius=CARD_RADIUS,
-        fill=COL_SURFACE,
+        fill=COL_CARD,
         outline=COL_BORDER,
         width=1,
     )
-    bar_left = x0 + CARD_PAD // 2
+    bar_x0 = x0 + CARD_PAD // 2
+    draw.rectangle(
+        [bar_x0, y0 + CARD_PAD, bar_x0 + INSIGHT_BAR_W, y1 - CARD_PAD],
+        fill=COL_INSIGHT_BAR,
+    )
+    text_left = bar_x0 + INSIGHT_BAR_W + 14
+    ty = y0 + CARD_PAD
+    draw.text((text_left, ty), "サマリ", font=fonts.label, fill=COL_INSIGHT_LABEL)
+    label_lh = _text_line_height(fonts.label, draw)
+    ty += label_lh + 12
+    body_lh = _text_line_height(fonts.body, draw)
+    for i, line in enumerate(bl):
+        st = line.strip()
+        is_bullet = bool(_BULLET_LINE_RE.match(st))
+        disp = _BULLET_LINE_RE.sub("", st, count=1) if is_bullet else line
+        bx_off = 0
+        if is_bullet:
+            cr = 4
+            cx = text_left + cr
+            cy_dot = ty + body_lh // 2
+            draw.ellipse([cx - cr, cy_dot - cr, cx + cr, cy_dot + cr], fill=COL_INSIGHT_BAR)
+            bx_off = 18
+        col = COL_MUTED if not disp.strip() else COL_TEXT
+        draw.text((text_left + bx_off, ty), disp, font=fonts.body, fill=col)
+        ty += body_lh + (LINE_GAP_TIGHT if i < len(bl) - 1 else 0)
+
+
+def _draw_section_card(
+    draw: ImageDraw.ImageDraw,
+    x0_card: int,
+    y0: int,
+    x1_card: int,
+    card_h: int,
+    accent: str,
+    hd: str | None,
+    hl: List[str],
+    bl: List[str],
+    fonts: _FontSet,
+    step_n: int | None,
+) -> None:
+    y1 = y0 + card_h
+    x1 = x1_card
+    content_left, content_w = _card_content_box(x0_card, x1_card)
+
+    draw.rounded_rectangle(
+        [x0_card + 2, y0 + 2, x1 + 2, y1 + 2],
+        radius=CARD_RADIUS,
+        fill=COL_SHADOW_SOFT,
+    )
+    draw.rounded_rectangle(
+        [x0_card, y0, x1, y1],
+        radius=CARD_RADIUS,
+        fill=COL_CARD,
+        outline=COL_BORDER,
+        width=1,
+    )
+    bar_left = x0_card + CARD_PAD // 2
     draw.rounded_rectangle(
         [bar_left, y0 + CARD_PAD, bar_left + ACCENT_BAR_W, y1 - CARD_PAD],
         radius=2,
         fill=accent,
     )
 
-    tx = inner_left
-    ty = y0 + CARD_PAD
-    body_lh = _text_line_height(fonts.body, draw)
     sec_lh = _text_line_height(fonts.section, draw)
+    body_lh = _text_line_height(fonts.body, draw)
+    cy = y0 + CARD_PAD
 
-    if heading is not None and heading_lines:
-        for i, line in enumerate(heading_lines):
-            draw.text((tx, ty), line, font=fonts.section, fill=accent)
-            ty += sec_lh + (LINE_GAP_TIGHT if i < len(heading_lines) - 1 else 0)
-        ty += LINE_GAP_SECTION
+    if hd and hl and step_n is not None:
+        px1 = content_left + STEP_PILL_W
+        py1 = cy + STEP_PILL_H
+        draw.rounded_rectangle(
+            [content_left, cy, px1, py1],
+            radius=8,
+            fill=COL_PILL_BG,
+            outline=accent,
+            width=2,
+        )
+        num = str(step_n)
+        bb = draw.textbbox((0, 0), num, font=fonts.badge)
+        tw, th = bb[2] - bb[0], bb[3] - bb[1]
+        draw.text(
+            (content_left + (STEP_PILL_W - tw) // 2, cy + (STEP_PILL_H - th) // 2 - 1),
+            num,
+            font=fonts.badge,
+            fill=accent,
+        )
+        tx = content_left + STEP_PILL_W + 10
+        v_off = max(0, (STEP_PILL_H - sec_lh) // 2)
+        title_y = cy + v_off
+        for i, line in enumerate(hl):
+            draw.text((tx, title_y), line, font=fonts.section, fill=COL_TEXT)
+            title_y += sec_lh + (LINE_GAP_TIGHT if i < len(hl) - 1 else 0)
+        title_used_h = max(STEP_PILL_H, _measure_block_height(hl, sec_lh, LINE_GAP_TIGHT))
+        inner_y0 = y0 + CARD_PAD + title_used_h + TITLE_GAP_AFTER_PILL
+    elif hd and hl:
+        tx = content_left
+        title_y = cy
+        for i, line in enumerate(hl):
+            draw.text((tx, title_y), line, font=fonts.section, fill=COL_TEXT)
+            title_y += sec_lh + (LINE_GAP_TIGHT if i < len(hl) - 1 else 0)
+        title_used_h = _measure_block_height(hl, sec_lh, LINE_GAP_TIGHT)
+        inner_y0 = y0 + CARD_PAD + title_used_h + TITLE_GAP_AFTER_PILL
+    else:
+        inner_y0 = y0 + CARD_PAD
 
-    for i, line in enumerate(body_lines):
-        color = COL_MUTED if not line.strip() else COL_TEXT
-        draw.text((tx, ty), line, font=fonts.body, fill=color)
-        ty += body_lh + (LINE_GAP_TIGHT if i < len(body_lines) - 1 else 0)
+    inner_y1 = y1 - CARD_PAD
+    draw.rounded_rectangle(
+        [content_left, inner_y0, content_left + content_w, inner_y1],
+        radius=INNER_RADIUS,
+        fill=COL_CARD_INNER,
+        outline=COL_BORDER_SOFT,
+        width=1,
+    )
+
+    txb = content_left + INNER_PAD
+    tyb = inner_y0 + INNER_PAD
+    for i, line in enumerate(bl):
+        st = line.strip()
+        is_bullet = bool(_BULLET_LINE_RE.match(st))
+        disp = _BULLET_LINE_RE.sub("", st, count=1) if is_bullet else line
+        bx_off = 0
+        if is_bullet:
+            cr = 5
+            cx = txb + cr
+            cy_dot = tyb + body_lh // 2
+            draw.ellipse([cx - cr, cy_dot - cr, cx + cr, cy_dot + cr], fill=accent)
+            bx_off = 20
+        if not disp.strip():
+            col = COL_MUTED
+        else:
+            col = COL_TEXT
+        draw.text((txb + bx_off, tyb), disp, font=fonts.body, fill=col)
+        tyb += body_lh + (LINE_GAP_TIGHT if i < len(bl) - 1 else 0)
 
 
 def render_summary_png(
@@ -321,8 +535,9 @@ def render_summary_png(
 
     draft = Image.new("RGB", (width, 40))
     draw_d = ImageDraw.Draw(draft)
-    inner_w_full = _content_inner_width(width)
-    card_text_w = _card_inner_width(width)
+    inner_hero_w = width - 2 * HERO_PAD_X
+    _x0g, _x1g = MARGIN, width - MARGIN
+    _, content_w = _card_content_box(_x0g, _x1g)
 
     name = _strip_inline_markdown(str(meeting_info.get("name") or "（無題）"))
     happened = format_happened_at_display(
@@ -333,155 +548,186 @@ def render_summary_png(
     title_lh = _text_line_height(fonts.title, draw_d)
     date_lh = _text_line_height(fonts.date, draw_d)
 
-    kicker_lines = _wrap_to_width(draw_d, "MEETING SUMMARY  ·  議事サマリー", fonts.kicker, inner_w_full)
-    title_lines = _wrap_to_width(draw_d, name, fonts.title, inner_w_full)
+    kicker_lines = _wrap_to_width(
+        draw_d, "VISUAL GUIDE  ·  議事サマリー", fonts.kicker, inner_hero_w
+    )
+    title_lines = _wrap_to_width(draw_d, name, fonts.title, inner_hero_w)
     date_lines = (
-        _wrap_to_width(draw_d, happened, fonts.date, inner_w_full) if happened else []
+        _wrap_to_width(draw_d, happened, fonts.date, inner_hero_w) if happened else []
     )
 
-    header_h = (
+    hero_content_h = (
         _measure_block_height(kicker_lines, kicker_lh, LINE_GAP_TIGHT)
-        + 12
+        + 14
         + _measure_block_height(title_lines, title_lh, LINE_GAP_TIGHT)
-        + (8 + _measure_block_height(date_lines, date_lh, LINE_GAP_TIGHT) if date_lines else 0)
+        + (
+            10 + _measure_block_height(date_lines, date_lh, LINE_GAP_TIGHT)
+            if date_lines
+            else 0
+        )
+        + 22
+        + HERO_ACCENT_LINE_H
     )
+    hero_h = HERO_PAD_TOP + hero_content_h + HERO_PAD_BOTTOM
 
     sections = parse_summary_sections(summary_text)
+    rest_sections, insight_body = _split_insight_section(sections)
 
-    # (heading, body, heading_lines, body_lines, card_h, accent)
-    prepared: List[Tuple[str | None, str, List[str], List[str], int, str]] = []
-    for idx, (hd, body) in enumerate(sections):
-        hl = _wrap_to_width(draw_d, hd, fonts.section, card_text_w) if hd else []
-        bl = _wrap_to_width(draw_d, body, fonts.body, card_text_w)
-        sec_lh = _text_line_height(fonts.section, draw_d)
-        body_lh = _text_line_height(fonts.body, draw_d)
-        if hd:
-            h_h = _measure_block_height(hl, sec_lh, LINE_GAP_TIGHT)
-            card_h = CARD_PAD + h_h + LINE_GAP_SECTION + _measure_block_height(bl, body_lh, LINE_GAP_TIGHT) + CARD_PAD
-        else:
-            card_h = CARD_PAD + _measure_block_height(bl, body_lh, LINE_GAP_TIGHT) + CARD_PAD
+    sec_lh_d = _text_line_height(fonts.section, draw_d)
+    body_lh_d = _text_line_height(fonts.body, draw_d)
+    label_lh_d = _text_line_height(fonts.label, draw_d)
+
+    insight_bl: List[str] = []
+    insight_h = 0
+    if insight_body:
+        insight_bl, insight_h = _measure_insight_block(
+            draw_d, insight_body, fonts, content_w, label_lh_d, body_lh_d
+        )
+
+    prepared: List[Tuple[str | None, str, List[str], List[str], int, str, int | None]] = []
+    step_counter = 0
+    for idx, (hd, body) in enumerate(rest_sections):
+        hl, bl, card_h = _measure_section_card(
+            draw_d, hd, body, fonts, content_w, sec_lh_d, body_lh_d
+        )
         accent = COL_ACCENTS[idx % len(COL_ACCENTS)]
-        prepared.append((hd, body, hl, bl, card_h, accent))
+        sn: int | None = None
+        if hd:
+            step_counter += 1
+            sn = step_counter
+        prepared.append((hd, body, hl, bl, card_h, accent, sn))
 
-    total_h = (
-        MARGIN
-        + header_h
-        + HEADER_GAP_AFTER_DATE
-        + sum(p[4] + CARD_GAP for p in prepared)
-        - CARD_GAP
-        + MARGIN
-    )
+    flow_row_h = body_lh_d + FLOW_ARROW_GAP * 2
+    flow_extra = flow_row_h * max(0, len(prepared) - 1)
+
+    body_stack_h = CONTENT_TOP_GAP
+    if insight_body and insight_bl:
+        body_stack_h += insight_h + CARD_GAP
+    if prepared:
+        body_stack_h += flow_extra + sum(p[4] + CARD_GAP for p in prepared) - CARD_GAP
+    body_stack_h += MARGIN
+    total_h = hero_h + body_stack_h
 
     body_lh_m = _text_line_height(fonts.body, draw_d)
     sec_lh_m = _text_line_height(fonts.section, draw_d)
-
-    def _card_shell_h(hd: str | None, hl: List[str]) -> int:
-        shell = 2 * CARD_PAD
-        if hd:
-            shell += _measure_block_height(hl, sec_lh_m, LINE_GAP_TIGHT) + LINE_GAP_SECTION
-        return shell
+    keep_insight = bool(insight_body and insight_bl)
 
     if total_h > MAX_IMAGE_HEIGHT:
         notice_lines = _wrap_to_width(
-            draw_d, TRUNCATION_NOTICE.strip(), fonts.body, card_text_w
+            draw_d,
+            TRUNCATION_NOTICE.strip(),
+            fonts.body,
+            max(100, content_w - 2 * INNER_PAD),
         )
-        notice_h = _measure_block_height(notice_lines, body_lh_m, LINE_GAP_TIGHT)
-        avail = MAX_IMAGE_HEIGHT - MARGIN * 2 - header_h - HEADER_GAP_AFTER_DATE
-
-        final_prep: List[Tuple[str | None, str, List[str], List[str], int, str]] = []
+        avail_total = MAX_IMAGE_HEIGHT - hero_h - CONTENT_TOP_GAP - MARGIN
         used = 0
-        for hd, body, hl, bl, _old_ch, accent in prepared:
-            gap_before = CARD_GAP if final_prep else 0
-            shell = _card_shell_h(hd, hl)
-            full_body_h = _measure_block_height(bl, body_lh_m, LINE_GAP_TIGHT)
-            full_card = shell + full_body_h
-            if used + gap_before + full_card <= avail:
-                final_prep.append((hd, body, hl, bl, full_card, accent))
-                used += gap_before + full_card
+        if keep_insight and insight_h + CARD_GAP <= avail_total:
+            used = insight_h + CARD_GAP
+        elif keep_insight:
+            keep_insight = False
+            insight_bl = []
+            insight_h = 0
+
+        card_avail = avail_total - used
+        final_prep: List[
+            Tuple[str | None, str, List[str], List[str], int, str, int | None]
+        ] = []
+        used_c = 0
+        for hd, body, hl, bl, _och, accent, sn in prepared:
+            prefix = (CARD_GAP + flow_row_h) if final_prep else 0
+            full_card = _card_height_from_lines(hd, hl, bl, sec_lh_m, body_lh_m)
+            if used_c + prefix + full_card <= card_avail:
+                final_prep.append((hd, body, hl, bl, full_card, accent, sn))
+                used_c += prefix + full_card
                 continue
 
-            room = avail - used - gap_before
-            if room < shell + body_lh_m + notice_h:
-                break
-
-            max_body_px = room - shell - notice_h
-            trimmed: List[str] = []
-            acc_px = 0
-            for ln in bl:
-                need = body_lh_m + (LINE_GAP_TIGHT if trimmed else 0)
-                if acc_px + need > max_body_px:
-                    break
-                trimmed.append(ln)
-                acc_px += need
+            room = card_avail - used_c - prefix
+            trimmed = list(bl)
+            while trimmed and _card_height_from_lines(
+                hd, hl, trimmed + notice_lines, sec_lh_m, body_lh_m
+            ) > room:
+                trimmed.pop()
             bl2 = trimmed + notice_lines
-            card_h = shell + _measure_block_height(bl2, body_lh_m, LINE_GAP_TIGHT)
+            card_h = _card_height_from_lines(hd, hl, bl2, sec_lh_m, body_lh_m)
             if card_h <= room:
-                final_prep.append((hd, body, hl, bl2, card_h, accent))
+                final_prep.append((hd, body, hl, bl2, card_h, accent, sn))
             break
 
         if not final_prep and prepared:
-            hd0, body0, hl0, _, _, accent0 = prepared[0]
-            shell0 = _card_shell_h(hd0, hl0)
+            hd0, body0, hl0, _, _, accent0, sn0 = prepared[0]
             bl_fallback = notice_lines
-            ch0 = shell0 + _measure_block_height(bl_fallback, body_lh_m, LINE_GAP_TIGHT)
-            if ch0 > avail:
-                hd0, hl0 = None, []
-                shell0 = _card_shell_h(None, [])
-                ch0 = shell0 + _measure_block_height(bl_fallback, body_lh_m, LINE_GAP_TIGHT)
-            final_prep = [(hd0, body0, hl0, bl_fallback, ch0, accent0)]
+            ch0 = _card_height_from_lines(hd0, hl0, bl_fallback, sec_lh_m, body_lh_m)
+            if ch0 > card_avail:
+                hd0, hl0, sn0 = None, [], None
+                ch0 = _card_height_from_lines(hd0, hl0, bl_fallback, sec_lh_m, body_lh_m)
+            final_prep = [(hd0, body0, hl0, bl_fallback, ch0, accent0, sn0)]
 
         prepared = final_prep
-        total_h = min(
-            MARGIN
-            + header_h
-            + HEADER_GAP_AFTER_DATE
-            + sum(p[4] + CARD_GAP for p in prepared)
-            - CARD_GAP
-            + MARGIN,
-            MAX_IMAGE_HEIGHT,
-        )
+        flow_extra2 = flow_row_h * max(0, len(prepared) - 1)
+        body_stack_h = CONTENT_TOP_GAP + MARGIN
+        if keep_insight and insight_bl:
+            body_stack_h += insight_h + CARD_GAP
+        if prepared:
+            body_stack_h += flow_extra2 + sum(p[4] + CARD_GAP for p in prepared) - CARD_GAP
+        total_h = min(hero_h + body_stack_h, MAX_IMAGE_HEIGHT)
 
-    img = Image.new("RGB", (width, total_h), COL_BG)
+    img = Image.new("RGB", (width, total_h), COL_PAGE_BG)
     draw = ImageDraw.Draw(img)
+    draw.rectangle([0, 0, width, hero_h], fill=COL_HERO_BG)
 
-    y = MARGIN
-    x_text = MARGIN
-
+    y = HERO_PAD_TOP
+    x_text = HERO_PAD_X
     for i, line in enumerate(kicker_lines):
-        draw.text((x_text, y), line, font=fonts.kicker, fill=COL_MUTED)
+        draw.text((x_text, y), line, font=fonts.kicker, fill=COL_MUTED_ON_HERO)
         y += kicker_lh + (LINE_GAP_TIGHT if i < len(kicker_lines) - 1 else 0)
-    y += 12
+    y += 14
 
     for i, line in enumerate(title_lines):
-        draw.text((x_text, y), line, font=fonts.title, fill=COL_TEXT)
+        draw.text((x_text, y), line, font=fonts.title, fill=COL_TEXT_ON_HERO)
         y += title_lh + (LINE_GAP_TIGHT if i < len(title_lines) - 1 else 0)
 
     if date_lines:
-        y += 8
+        y += 10
         for i, line in enumerate(date_lines):
-            draw.text((x_text, y), line, font=fonts.date, fill=COL_MUTED)
+            draw.text((x_text, y), line, font=fonts.date, fill=COL_MUTED_ON_HERO)
             y += date_lh + (LINE_GAP_TIGHT if i < len(date_lines) - 1 else 0)
 
-    y += HEADER_GAP_AFTER_DATE
+    draw.rectangle(
+        [0, hero_h - HERO_ACCENT_LINE_H, width, hero_h],
+        fill=COL_HERO_LINE,
+    )
 
+    y = hero_h + CONTENT_TOP_GAP
     x0_card = MARGIN
     x1_card = width - MARGIN
-    inner_left = x0_card + CARD_PAD + ACCENT_BAR_W + 12
 
-    for hd, _body, hl, bl, card_h, accent in prepared:
-        _draw_card_fixed_lines(
+    if keep_insight and insight_bl:
+        _draw_insight_block(draw, x0_card, y, x1_card, insight_h, insight_bl, fonts)
+        y += insight_h + CARD_GAP
+
+    for i, (hd, _body, hl, bl, card_h, accent, sn) in enumerate(prepared):
+        if i > 0:
+            bb = draw.textbbox((0, 0), "▼", font=fonts.body)
+            tw = bb[2] - bb[0]
+            draw.text(
+                ((width - tw) // 2, y + FLOW_ARROW_GAP),
+                "▼",
+                font=fonts.body,
+                fill=COL_FLOW_MARK,
+            )
+            y += flow_row_h
+        _draw_section_card(
             draw,
             x0_card,
             y,
             x1_card,
-            y + card_h,
+            card_h,
             accent,
             hd,
             hl,
             bl,
-            inner_left,
-            card_text_w,
             fonts,
+            sn,
         )
         y += card_h + CARD_GAP
 
