@@ -3,11 +3,13 @@ import unittest
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+from PIL import ImageFont
+
 _ROOT = Path(__file__).resolve().parents[1]
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
-from app.services import slack_publisher
+from app.services import image_generator, slack_publisher
 
 
 class TestSlackPublisher(unittest.TestCase):
@@ -90,6 +92,42 @@ class TestSlackPublisher(unittest.TestCase):
         self.assertIn("会議自動化エラー", kw["text"])
         self.assertIn("mid", kw["text"])
         self.assertIn("Claude", kw["text"])
+
+    @patch.object(slack_publisher, "WebClient")
+    @patch.object(slack_publisher, "settings")
+    def test_upload_passes_realistic_png_from_renderer(
+        self,
+        mock_settings: MagicMock,
+        mock_client_cls: MagicMock,
+    ) -> None:
+        """パイプライン相当の PNG が Slack に渡ること（マジックバイト・最小サイズ）。"""
+        meeting = {"name": "検証MTG", "happened_at": "2026-03-01", "participants": []}
+        summary = "## 要点\n- テスト\n\n## タスク一覧\n1. **A** - 作業 - 期限未定"
+        fake_font = ImageFont.load_default()
+        with patch.object(
+            image_generator,
+            "_resolve_font",
+            side_effect=lambda _size: (fake_font, True),
+        ):
+            png = image_generator.render_summary_png(meeting, summary, width=720)
+
+        mock_settings.slack_bot_token = "xoxb-test"
+        mock_settings.slack_channel_id = "C111"
+        mock_inst = MagicMock()
+        mock_client_cls.return_value = mock_inst
+        mock_resp = MagicMock()
+        mock_resp.data = {"file": {"id": "Fz"}}
+        mock_inst.files_upload_v2.return_value = mock_resp
+
+        slack_publisher.post_meeting_summary_png(
+            png_bytes=png,
+            meeting_id="mid_png",
+            meeting_info=meeting,
+        )
+        kw = mock_inst.files_upload_v2.call_args.kwargs
+        content = kw["content"]
+        self.assertTrue(content.startswith(b"\x89PNG\r\n\x1a\n"))
+        self.assertGreater(len(content), 800)
 
 
 if __name__ == "__main__":

@@ -40,6 +40,12 @@ python -m unittest discover -s tests -p 'test_*.py' -v
 
 個別ファイルを直接実行する場合も、上記と同じディレクトリから `python tests/test_trello_client.py` で動くようにパスを補正済みです。`/usr/local/bin/python3` で親フォルダがパスに入っていないと `ModuleNotFoundError: No module named 'app'` になるので、**必ず `meeting-automation` に `cd` してから**実行してください。
 
+- **要約 PNG**: `tests/test_image_generator.py` でダークテーマ背景・`##` セクション分割を検証します。
+- **Slack へ渡すバイト列**: `tests/test_slack_publisher.py` の `test_upload_passes_realistic_png_from_renderer` で、レンダラが出力した PNG のマジックバイトとサイズを確認します。
+- **実 Slack 投稿（任意）**: 有効な Bot トークンで `MEETING_AUTOMATION_LIVE_SLACK=1 python -m unittest tests.test_live_slack_png` を実行。
+- **ローカルで PNG を目視**: `python scripts/render_summary_preview.py -o /tmp/summary.png`（初回は `fonts/NotoSansCJKjp-Regular.otf` 同梱推奨。未取得時は notofonts の OTF をダウンロードしますがサイズ約16MBです）
+- **ローカルで Slack に PNG 投稿テスト**（プレビューと同じダミー要約）: `.env` に `SLACK_BOT_TOKEN` / `SLACK_CHANNEL_ID` を入れたうえで `python scripts/send_preview_to_slack.py`（`--meeting-id` でファイル名用 ID を任意指定可）
+
 ## Vercel へのデプロイ
 
 1. このディレクトリを GitHub リポジトリとして登録
@@ -58,6 +64,8 @@ python -m unittest discover -s tests -p 'test_*.py' -v
 3. ヘッダー `Authorization: Bearer <secret>`
 
 **B. tl;dv の API キー** — ヘッダー `x-api-key` が環境変数 `TLDV_API_KEY` と一致（tl;dv の Webhook「APIキー」認証向け）
+
+`TLDV_API_KEY` / `WEBHOOK_SECRET` などは読み込み時に前後空白を除去します（Vercel のコピペで `Invalid token` になるのを防ぐため）。
 
 tl;dv が登録 URL のクエリを POST に付けない場合は、`x-api-key` か上記ヘッダーで `WEBHOOK_SECRET` を渡してください。
 

@@ -5,6 +5,8 @@ import unittest
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+from io import BytesIO
+
 from PIL import Image, ImageDraw, ImageFont
 
 _ROOT = Path(__file__).resolve().parents[1]
@@ -30,6 +32,31 @@ class TestRenderSummaryPng(unittest.TestCase):
 
         self.assertTrue(png.startswith(b"\x89PNG\r\n\x1a\n"))
         self.assertGreater(len(png), 200)
+        im = Image.open(BytesIO(png)).convert("RGB")
+        # 要件定義どおりダーク背景（旧ライトグレー #f4f4f5 ではない）
+        # テキスト領域に入らない左上（MARGIN より手前は全面 COL_BG）
+        px = im.getpixel((10, 10))
+        self.assertLess(sum(px) / 3, 35)
+
+    def test_parse_summary_sections(self) -> None:
+        raw = "前置きのみ"
+        self.assertEqual(
+            image_generator.parse_summary_sections(raw),
+            [(None, "前置きのみ")],
+        )
+        raw2 = "## 第一\n内容A\n\n## 第二\n内容B"
+        sec = image_generator.parse_summary_sections(raw2)
+        self.assertEqual(len(sec), 2)
+        self.assertEqual(sec[0][0], "第一")
+        self.assertIn("内容A", sec[0][1])
+        self.assertEqual(sec[1][0], "第二")
+
+    def test_parse_preamble_and_sections(self) -> None:
+        raw = "導入文です。\n\n## 要点\n- あ"
+        sec = image_generator.parse_summary_sections(raw)
+        self.assertEqual(sec[0][0], "概要")
+        self.assertIn("導入文", sec[0][1])
+        self.assertEqual(sec[1][0], "要点")
 
     def test_wrap_empty_line_preserved(self) -> None:
         draft = Image.new("RGB", (400, 20))

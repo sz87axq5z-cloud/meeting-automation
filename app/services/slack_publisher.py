@@ -14,6 +14,7 @@ from slack_sdk import WebClient
 from slack_sdk.errors import SlackApiError
 
 from app.config import settings
+from app.formatting import format_happened_at_display
 
 logger = logging.getLogger(__name__)
 
@@ -43,7 +44,7 @@ def _build_initial_comment(
     trello_urls: Optional[List[str]] = None,
 ) -> str:
     name = str(meeting_info.get("name") or "会議")
-    happened = str(meeting_info.get("happened_at") or "").strip()
+    happened = format_happened_at_display(meeting_info.get("happened_at"))
     url = meeting_info.get("url")
     lines = [
         f"*{name}*",

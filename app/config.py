@@ -38,6 +38,23 @@ class Settings(BaseSettings):
     dedupe_webhook_ttl_seconds: int = 604_800
     dedupe_meeting_ttl_seconds: int = 604_800
 
+    @field_validator(
+        "tldv_api_key",
+        "webhook_secret",
+        "anthropic_api_key",
+        "slack_bot_token",
+        "slack_channel_id",
+        "trello_api_key",
+        "trello_token",
+        mode="before",
+    )
+    @classmethod
+    def _strip_secrets_and_ids(cls, v: object) -> object:
+        """Vercel/.env の改行・前後空白で x-api-key 認証が不一致になるのを防ぐ。"""
+        if isinstance(v, str):
+            return v.strip()
+        return v
+
     @field_validator("trello_board_id", "trello_list_id", mode="before")
     @classmethod
     def _strip_trello_ids(cls, v: object) -> object:
