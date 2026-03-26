@@ -34,15 +34,34 @@ def _provided_webhook_secret(request: Request, query_token: str | None) -> str |
     return None
 
 
+def _webhook_secret_auth_ok(request: Request, query_token: str | None) -> bool:
+    provided = _provided_webhook_secret(request, query_token)
+    if provided is None:
+        return False
+    return provided == (settings.webhook_secret or "").strip()
+
+
+def _tldv_x_api_key_auth_ok(request: Request) -> bool:
+    """tl;dv Webhook の「APIキー」認証で送られる x-api-key と TLDV_API_KEY を照合。"""
+    key = (request.headers.get("x-api-key") or "").strip()
+    if not key:
+        return False
+    return key == (settings.tldv_api_key or "").strip()
+
+
+def _webhook_authorized(request: Request, query_token: str | None) -> bool:
+    return _webhook_secret_auth_ok(request, query_token) or _tldv_x_api_key_auth_ok(
+        request
+    )
+
+
 @router.post("/webhook")
 async def tldv_webhook(
     request: Request,
     background_tasks: BackgroundTasks,
     token: str | None = None,
 ) -> dict:
-    provided = _provided_webhook_secret(request, token)
-    expected = (settings.webhook_secret or "").strip()
-    if provided != expected:
+    if not _webhook_authorized(request, token):
         raise HTTPException(status_code=401, detail="Invalid token")
 
     payload = await request.json()

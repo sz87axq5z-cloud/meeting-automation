@@ -49,14 +49,17 @@ python -m unittest discover -s tests -p 'test_*.py' -v
 
 ### Webhook 認証（`WEBHOOK_SECRET`）
 
-`POST /webhook` は、環境変数 `WEBHOOK_SECRET` と次のいずれかが一致すれば通ります（優先順）。
+`POST /webhook` は、次の **どちらか**で通ります。
 
-1. クエリ `?token=`（従来どおり）
-2. ヘッダー `X-Webhook-Secret: <secret>`
-3. ヘッダー `X-Webhook-Token: <secret>`
-4. ヘッダー `Authorization: Bearer <secret>`
+**A. `WEBHOOK_SECRET` と一致**（次のいずれかで渡す）
 
-tl;dv が登録 URL のクエリを POST に付けない場合は、tl;dv 側でカスタムヘッダーを付与できる設定があれば上記ヘッダーに `WEBHOOK_SECRET` と同じ値を設定してください。
+1. クエリ `?token=`
+2. ヘッダー `X-Webhook-Secret` / `X-Webhook-Token`
+3. ヘッダー `Authorization: Bearer <secret>`
+
+**B. tl;dv の API キー** — ヘッダー `x-api-key` が環境変数 `TLDV_API_KEY` と一致（tl;dv の Webhook「APIキー」認証向け）
+
+tl;dv が登録 URL のクエリを POST に付けない場合は、`x-api-key` か上記ヘッダーで `WEBHOOK_SECRET` を渡してください。
 
 ### Webhook の二重受信と失敗通知（任意）
 

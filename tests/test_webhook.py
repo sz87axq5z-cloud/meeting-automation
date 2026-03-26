@@ -32,6 +32,7 @@ class TestWebhook(unittest.TestCase):
         mock_run: MagicMock,
     ) -> None:
         mock_settings.webhook_secret = "s3cr3t"
+        mock_settings.tldv_api_key = "other-tldv-key"
         client = _make_client()
         r = client.post(
             "/webhook?token=s3cr3t",
@@ -56,6 +57,7 @@ class TestWebhook(unittest.TestCase):
         mock_run: MagicMock,
     ) -> None:
         mock_settings.webhook_secret = "s3cr3t"
+        mock_settings.tldv_api_key = "other-tldv-key"
         client = _make_client()
         r = client.post(
             "/webhook?token=s3cr3t",
@@ -72,6 +74,7 @@ class TestWebhook(unittest.TestCase):
     @patch("app.api.webhook.settings")
     def test_dedupe_requires_id(self, mock_settings: MagicMock) -> None:
         mock_settings.webhook_secret = "s3cr3t"
+        mock_settings.tldv_api_key = "other-tldv-key"
         with patch("app.api.webhook.is_dedupe_configured", return_value=True):
             client = _make_client()
             r = client.post(
@@ -86,6 +89,7 @@ class TestWebhook(unittest.TestCase):
     @patch("app.api.webhook.settings")
     def test_wrong_token(self, mock_settings: MagicMock) -> None:
         mock_settings.webhook_secret = "s3cr3t"
+        mock_settings.tldv_api_key = "other-tldv-key"
         client = _make_client()
         r = client.post(
             "/webhook?token=wrong",
@@ -103,6 +107,7 @@ class TestWebhook(unittest.TestCase):
         mock_run: MagicMock,
     ) -> None:
         mock_settings.webhook_secret = "s3cr3t"
+        mock_settings.tldv_api_key = "other-tldv-key"
         client = _make_client()
         r = client.post(
             "/webhook",
@@ -123,6 +128,7 @@ class TestWebhook(unittest.TestCase):
         mock_run: MagicMock,
     ) -> None:
         mock_settings.webhook_secret = "s3cr3t"
+        mock_settings.tldv_api_key = "other-tldv-key"
         client = _make_client()
         r = client.post(
             "/webhook",
@@ -136,10 +142,44 @@ class TestWebhook(unittest.TestCase):
     @patch("app.api.webhook.settings")
     def test_wrong_header_401(self, mock_settings: MagicMock) -> None:
         mock_settings.webhook_secret = "s3cr3t"
+        mock_settings.tldv_api_key = "other-tldv-key"
         client = _make_client()
         r = client.post(
             "/webhook",
             headers={"X-Webhook-Secret": "nope"},
+            json={"event": "TranscriptReady", "data": {"meetingId": "m1"}},
+        )
+        self.assertEqual(r.status_code, 401)
+
+    @patch("app.api.webhook.run_pipeline")
+    @patch("app.api.webhook.is_dedupe_configured", return_value=False)
+    @patch("app.api.webhook.settings")
+    def test_x_api_key_tldv_accepted(
+        self,
+        mock_settings: MagicMock,
+        _mock_dedupe: MagicMock,
+        mock_run: MagicMock,
+    ) -> None:
+        mock_settings.webhook_secret = "wh-only-secret"
+        mock_settings.tldv_api_key = "tldv-api-key-value"
+        client = _make_client()
+        r = client.post(
+            "/webhook",
+            headers={"x-api-key": "tldv-api-key-value"},
+            json={"event": "TranscriptReady", "data": {"meetingId": "m1"}},
+        )
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(r.json().get("status"), "accepted")
+        mock_run.assert_called()
+
+    @patch("app.api.webhook.settings")
+    def test_wrong_x_api_key_401(self, mock_settings: MagicMock) -> None:
+        mock_settings.webhook_secret = "s3cr3t"
+        mock_settings.tldv_api_key = "real-tldv-key"
+        client = _make_client()
+        r = client.post(
+            "/webhook",
+            headers={"x-api-key": "wrong-key"},
             json={"event": "TranscriptReady", "data": {"meetingId": "m1"}},
         )
         self.assertEqual(r.status_code, 401)
