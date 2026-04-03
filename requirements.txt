@@ -7,4 +7,7 @@ certifi
 Pillow
 pydantic-settings
 python-dotenv
+boto3
+cryptography
+google-cloud-storage
 

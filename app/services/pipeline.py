@@ -7,6 +7,8 @@ from app.services.slack_publisher import (
     post_meeting_summary_png,
     post_pipeline_failure_message,
 )
+from app.services.summary_html import build_summary_html_document
+from app.services.summary_html_publish import publish_summary_html
 from app.services.tldv_client import fetch_meeting_context
 from app.services.trello_client import create_cards_for_tasks, parse_tasks_from_claude_text
 
@@ -98,6 +100,24 @@ def run_pipeline(meeting_id: str) -> None:
     )
 
     raw_text = result.get("raw_text") or ""
+
+    html_doc = build_summary_html_document(meeting_info, raw_text)
+    html_bytes = html_doc.encode("utf-8")
+    summary_html_url = publish_summary_html(
+        html_bytes=html_bytes,
+        meeting_id=meeting_id,
+    )
+    if summary_html_url:
+        logger.info(
+            "run_pipeline summary html public url meeting_id=%s",
+            meeting_id,
+        )
+    else:
+        logger.info(
+            "run_pipeline summary html no public url (set MEETING_HTML_S3_BUCKET for browser link) meeting_id=%s",
+            meeting_id,
+        )
+
     task_titles = parse_tasks_from_claude_text(raw_text)
     trello_urls: list[str] = []
     if task_titles:
@@ -128,6 +148,8 @@ def run_pipeline(meeting_id: str) -> None:
             meeting_id=meeting_id,
             meeting_info=meeting_info,
             trello_urls=trello_urls or None,
+            summary_html_url=summary_html_url,
+            html_public_url_missing=not bool(summary_html_url),
         )
     except Exception as e:
         logger.exception("Slack post failed meeting_id=%s", meeting_id)

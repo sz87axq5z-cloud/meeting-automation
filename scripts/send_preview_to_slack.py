@@ -43,7 +43,7 @@ def main() -> int:
     meeting_id = (args.meeting_id or "").strip() or f"local-preview-{int(time.time())}"
 
     print("Rendering PNG (same as render_summary_preview.py)...", flush=True)
-    png = render_summary_png(SAMPLE_MEETING, SAMPLE_SUMMARY, width=1080)
+    png = render_summary_png(SAMPLE_MEETING, SAMPLE_SUMMARY)
     print(f"PNG size: {len(png)} bytes", flush=True)
 
     print("Uploading to Slack...", flush=True)

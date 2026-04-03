@@ -31,7 +31,7 @@ def main() -> int:
     out = Path(args.output)
     out.parent.mkdir(parents=True, exist_ok=True)
 
-    data = render_summary_png(SAMPLE_MEETING, SAMPLE_SUMMARY, width=1080)
+    data = render_summary_png(SAMPLE_MEETING, SAMPLE_SUMMARY)
     out.write_bytes(data)
     print(f"Wrote {out} ({len(data)} bytes)")
     return 0

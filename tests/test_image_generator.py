@@ -14,9 +14,46 @@ if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
 from app.services import image_generator
+from app.summary_preview_sample import SAMPLE_MEETING, SAMPLE_SUMMARY
 
 
 class TestRenderSummaryPng(unittest.TestCase):
+    def test_strip_mermaid_for_png(self) -> None:
+        raw = """Line one.
+
+```mermaid
+flowchart TD
+  A-->B
+```
+
+Line two."""
+        out = image_generator.strip_mermaid_fences_for_png(raw)
+        self.assertNotIn("flowchart TD", out)
+        self.assertIn("HTML 版", out)
+        self.assertIn("Line one", out)
+        self.assertIn("Line two", out)
+
+    def test_slack_diagram_sample_full_layout(self) -> None:
+        """Slack 投稿と同じサンプルで図解 PNG を生成し、既定幅・構造を検証する。"""
+        fake_font = ImageFont.load_default()
+        with patch.object(
+            image_generator,
+            "_resolve_font",
+            side_effect=lambda _size: (fake_font, True),
+        ):
+            png = image_generator.render_summary_png(
+                SAMPLE_MEETING,
+                SAMPLE_SUMMARY,
+            )
+
+        self.assertTrue(png.startswith(b"\x89PNG\r\n\x1a\n"))
+        self.assertGreater(len(png), 5_000)
+        im = Image.open(BytesIO(png)).convert("RGB")
+        self.assertEqual(im.width, image_generator.DEFAULT_WIDTH)
+        self.assertGreater(im.height, 400)
+        px_top = im.getpixel((10, 10))
+        self.assertLess(sum(px_top) / 3, 80)
+
     def test_outputs_png_magic(self) -> None:
         fake_font = ImageFont.load_default()
 
@@ -77,6 +114,27 @@ class TestRenderSummaryPng(unittest.TestCase):
         font = ImageFont.load_default()
         lines = image_generator._wrap_to_width(draw, "a\n\nb", font, 300)
         self.assertEqual(lines, ["a", "", "b"])
+
+    def test_group_task_section_body_merges_same_assignee(self) -> None:
+        body = (
+            "1. **高橋** - A - 4/1\n"
+            "2. **濱上** - B\n"
+            "3. **高橋** - C - 未定"
+        )
+        out = image_generator._group_task_section_body("タスク一覧", body)
+        self.assertIn("高橋", out)
+        self.assertIn("- A - 4/1", out)
+        self.assertIn("- C - 未定", out)
+        self.assertIn("濱上", out)
+        self.assertIn("- B", out)
+        self.assertLess(out.count("高橋"), 3)
+
+    def test_group_task_section_body_skips_non_task_heading(self) -> None:
+        body = "1. **太郎** - x"
+        self.assertEqual(
+            image_generator._group_task_section_body("決定事項", body),
+            body,
+        )
 
     def test_noto_download_url_default_and_disable(self) -> None:
         with patch.dict(os.environ):

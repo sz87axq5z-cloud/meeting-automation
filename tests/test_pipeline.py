@@ -25,6 +25,8 @@ class TestPipeline(unittest.TestCase):
         mock_notify.assert_not_called()
 
     @patch.object(pipeline_mod, "mark_meeting_completed")
+    @patch.object(pipeline_mod, "publish_summary_html", return_value=None)
+    @patch.object(pipeline_mod, "build_summary_html_document", return_value="<html/>")
     @patch.object(pipeline_mod, "post_meeting_summary_png", return_value="F1")
     @patch.object(pipeline_mod, "create_cards_for_tasks", return_value=[])
     @patch.object(pipeline_mod, "parse_tasks_from_claude_text", return_value=[])
@@ -51,11 +53,17 @@ class TestPipeline(unittest.TestCase):
         _parse: MagicMock,
         _trello: MagicMock,
         _slack: MagicMock,
+        _build_html: MagicMock,
+        _publish_html: MagicMock,
         mock_mark: MagicMock,
     ) -> None:
         pipeline_mod.run_pipeline("mid")
         mock_mark.assert_called_once_with("mid")
         mock_notify.assert_not_called()
+        _slack.assert_called_once()
+        skw = _slack.call_args.kwargs
+        self.assertTrue(skw.get("html_public_url_missing"))
+        self.assertIsNone(skw.get("summary_html_url"))
 
     @patch.object(pipeline_mod, "post_pipeline_failure_message")
     @patch.object(pipeline_mod, "meeting_already_completed", return_value=False)

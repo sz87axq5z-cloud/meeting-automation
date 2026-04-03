@@ -45,6 +45,88 @@ class TestSlackPublisher(unittest.TestCase):
 
     @patch.object(slack_publisher, "WebClient")
     @patch.object(slack_publisher, "settings")
+    def test_summary_html_url_in_comment(
+        self,
+        mock_settings: MagicMock,
+        mock_client_cls: MagicMock,
+    ) -> None:
+        mock_settings.slack_bot_token = "xoxb-test"
+        mock_settings.slack_channel_id = "C111"
+        mock_inst = MagicMock()
+        mock_client_cls.return_value = mock_inst
+        mock_resp = MagicMock()
+        mock_resp.data = {"file": {"id": "F"}}
+        mock_inst.files_upload_v2.return_value = mock_resp
+
+        slack_publisher.post_meeting_summary_png(
+            png_bytes=b"x",
+            meeting_id="m1",
+            meeting_info={"name": "N"},
+            summary_html_url="https://example.com/meetings/m1.html",
+        )
+        comment = mock_inst.files_upload_v2.call_args.kwargs["initial_comment"]
+        self.assertIn("要約（HTML）", comment)
+        self.assertIn("https://example.com/meetings/m1.html", comment)
+        self.assertIn("ブラウザで開く（図解ページ）", comment)
+
+    @patch.object(slack_publisher, "WebClient")
+    @patch.object(slack_publisher, "settings")
+    def test_html_public_url_missing_hint_in_comment(
+        self,
+        mock_settings: MagicMock,
+        mock_client_cls: MagicMock,
+    ) -> None:
+        mock_settings.slack_bot_token = "xoxb-test"
+        mock_settings.slack_channel_id = "C111"
+        mock_inst = MagicMock()
+        mock_client_cls.return_value = mock_inst
+        mock_resp = MagicMock()
+        mock_resp.data = {"file": {"id": "F"}}
+        mock_inst.files_upload_v2.return_value = mock_resp
+
+        slack_publisher.post_meeting_summary_png(
+            png_bytes=b"x",
+            meeting_id="m1",
+            meeting_info={"name": "N"},
+            html_public_url_missing=True,
+        )
+        comment = mock_inst.files_upload_v2.call_args.kwargs["initial_comment"]
+        self.assertIn("MEETING_HTML_S3_BUCKET", comment)
+        self.assertNotIn("要約（HTML）", comment)
+
+    @patch.object(slack_publisher, "WebClient")
+    @patch.object(slack_publisher, "settings")
+    def test_upload_summary_html_returns_permalink(
+        self,
+        mock_settings: MagicMock,
+        mock_client_cls: MagicMock,
+    ) -> None:
+        mock_settings.slack_bot_token = "xoxb-test"
+        mock_settings.slack_channel_id = "C111"
+        mock_inst = MagicMock()
+        mock_client_cls.return_value = mock_inst
+        mock_resp = MagicMock()
+        mock_resp.data = {
+            "file": {
+                "id": "Fhtml",
+                "permalink": "https://example.slack.com/files/abc/meeting.html",
+            }
+        }
+        mock_inst.files_upload_v2.return_value = mock_resp
+
+        url = slack_publisher.upload_summary_html_to_slack(
+            html_bytes=b"<!DOCTYPE html><html></html>",
+            meeting_id="mid9",
+            meeting_info={"name": "MTG"},
+        )
+        self.assertEqual(url, "https://example.slack.com/files/abc/meeting.html")
+        mock_inst.files_upload_v2.assert_called_once()
+        kw = mock_inst.files_upload_v2.call_args.kwargs
+        self.assertTrue(kw["filename"].endswith(".html"))
+        self.assertIn(b"html", kw["content"])
+
+    @patch.object(slack_publisher, "WebClient")
+    @patch.object(slack_publisher, "settings")
     def test_trello_links_in_comment(
         self,
         mock_settings: MagicMock,
