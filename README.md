@@ -72,17 +72,31 @@ tl;dv が登録 URL のクエリを POST に付けない場合は、`x-api-key` 
 
 ### 要約 HTML の公開 URL（任意）
 
-Claude の要約から **単一ページの HTML** を生成します。**`MEETING_HTML_S3_BUCKET` と AWS 認証を設定しているとき**だけ S3 にアップロードし、その **公開 HTTPS URL** を PNG 投稿のコメントに **「ブラウザで開く（図解ページ）」** として載せます。Slack に `.html` を添付するとアプリ内で **ソース表示**になりやすいため、パイプラインからは **HTML ファイルを Slack に投稿しません**。未設定時はコメントに S3 設定の案内が1行付きます（手動で `upload_summary_html_to_slack` を使うデバッグ用関数は `slack_publisher` に残しています）。
+Claude の要約から **単一ページの HTML** を生成します。**公開 HTTPS URL** を PNG 投稿のコメントに **「ブラウザで開く（図解ページ）」** として載せるには、次のいずれかを設定します。
 
-- `.env.example` の `MEETING_HTML_*` と `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY`（または IAM ロール）を参照
-- バケット側で `meetings/` プレフィックス（変更可）のオブジェクトが **匿名で GET できる**こと、または `MEETING_HTML_PUBLIC_BASE_URL` に CloudFront 等の公開オリジンを指定すること
+1. **GCS（推奨・図解と同じ認証で可）**  
+   `MEETING_HTML_GCS_BUCKET` と `GOOGLE_APPLICATION_CREDENTIALS`（図解の `INFOGRAPHIC_GCS_BUCKET` と同じバケットでも別プレフィックスでも可）。**設定されているときは S3 より優先**されます。
+2. **S3**  
+   `MEETING_HTML_S3_BUCKET` と AWS 認証（`MEETING_HTML_GCS_BUCKET` が空のときのみ使用）。
 
-#### 本番に近い手動テスト（S3 ＋ パイプライン）
+Slack に `.html` を添付するとアプリ内で **ソース表示**になりやすいため、パイプラインからは **HTML ファイルを Slack に投稿しません**。GCS/S3 とも未設定のときはコメントに設定案内が1行付きます（手動で `upload_summary_html_to_slack` を使うデバッグ用関数は `slack_publisher` に残しています）。
 
-1. AWS で S3 バケットを用意し、**公開読み取り**（または CloudFront 経由）で HTML を配信できるようにする。例: バケットポリシーで `meetings/*` に対し `s3:GetObject` を `Principal: "*"` に許可（本番では IP 制限・CloudFront OAC 等で絞ることを推奨）。
-2. IAM ユーザーまたはロールに、そのバケットへの `s3:PutObject` を付与。
-3. `meeting-automation/.env` に `MEETING_HTML_S3_BUCKET` と `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY`（ローカルから実行する場合）を設定。
-4. 実行:
+- `.env.example` の `MEETING_HTML_GCS_*` / `MEETING_HTML_S3_*` を参照
+- オブジェクトは **匿名で GET できる**ようにする（または `MEETING_HTML_PUBLIC_BASE_URL` に CDN のベース URL を指定）
+
+#### 本番に近い手動テスト（GCS または S3 ＋ パイプライン）
+
+**GCS の場合**
+
+1. 公開読み取り可能な GCS バケットを用意し、サービスアカウントに `storage.objects.create` を付与（図解用と共通でよい）。
+2. `.env` に `MEETING_HTML_GCS_BUCKET` と `GOOGLE_APPLICATION_CREDENTIALS` を設定（任意で `MEETING_HTML_GCS_PREFIX=meetings`）。
+
+**S3 の場合**
+
+1. AWS で S3 バケットを用意し、**公開読み取り**（または CloudFront 経由）で HTML を配信できるようにする。
+2. IAM に `s3:PutObject` を付与し、`.env` に `MEETING_HTML_S3_BUCKET` と `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` を設定。
+
+**共通**
 
 ```bash
 cd meeting-automation
@@ -90,7 +104,7 @@ cd meeting-automation
 .venv/bin/python scripts/run_pipeline_for_meeting.py あなたの会議ID
 ```
 
-5. Slack の PNG 投稿コメントに **要約（HTML）／ブラウザで開く** の URL が付いているか確認。シークレットウィンドウで開き、ログインなしで HTML が表示されるかも確認する。
+Slack の PNG 投稿コメントに **要約（HTML）／ブラウザで開く** の URL が付いているか確認。シークレットウィンドウで開き、ログインなしで HTML が表示されるかも確認する。
 
 **注意**: `UPSTASH_REDIS_REST_*` が有効なとき、**同じ会議 ID は一度成功すると再実行されない**（重複防止）。再テストする場合は Redis のキーを消すか、別の会議 ID を使う。
 

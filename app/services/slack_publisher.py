@@ -65,8 +65,9 @@ def _build_initial_comment(
     elif html_public_url_missing:
         lines.append("")
         lines.append(
-            "※ 要約の *HTML 図解* をタップ1回でブラウザ表示するには、"
-            "`MEETING_HTML_S3_BUCKET` と AWS 認証を `.env` に設定してください（README「要約 HTML の公開 URL」）。"
+            "※ 要約の *HTML* をタップ1回でブラウザ表示するには、"
+            "`MEETING_HTML_GCS_BUCKET` と GCS 認証、または `MEETING_HTML_S3_BUCKET` と AWS 認証を "
+            "`.env` に設定してください（README「要約 HTML の公開 URL」）。"
         )
     base = "\n".join(lines)
 

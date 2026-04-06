@@ -91,6 +91,7 @@ class TestSlackPublisher(unittest.TestCase):
             html_public_url_missing=True,
         )
         comment = mock_inst.files_upload_v2.call_args.kwargs["initial_comment"]
+        self.assertIn("MEETING_HTML_GCS_BUCKET", comment)
         self.assertIn("MEETING_HTML_S3_BUCKET", comment)
         self.assertNotIn("要約（HTML）", comment)
 

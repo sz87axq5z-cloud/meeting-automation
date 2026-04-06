@@ -41,11 +41,15 @@ class Settings(BaseSettings):
     # SET … EX の秒数（デフォルト 7 日）
     dedupe_webhook_ttl_seconds: int = 604_800
     dedupe_meeting_ttl_seconds: int = 604_800
-    # 要約 HTML を S3 に置いて公開 URL を Slack に載せる（任意。未設定なら HTML アップロードはスキップ）
+    # 要約 HTML を GCS に置いて公開 URL を Slack に載せる（任意。設定時は S3 より優先）
+    meeting_html_gcs_bucket: str | None = None
+    meeting_html_gcs_prefix: str = "meetings"
+    # 要約 HTML を S3 に置く（任意。GCS 未設定時のみ使用）
     meeting_html_s3_bucket: str | None = None
     meeting_html_s3_prefix: str = "meetings"
     meeting_html_s3_region: str = "ap-northeast-1"
-    # 例: https://xxxx.cloudfront.net 。未設定時は https://{bucket}.s3.{region}.amazonaws.com を使用
+    # 例: https://xxxx.cloudfront.net 。GCS 時は storage.googleapis.com の代わりにこのベース＋オブジェクトキー
+    # S3 時は未設定なら https://{bucket}.s3.{region}.amazonaws.com を使用
     meeting_html_public_base_url: str | None = None
     # 図解 HTML: GCS 公開バケットへアップロード（未設定ならローカル保存のみ）
     infographic_gcs_bucket: str | None = None
@@ -93,6 +97,7 @@ class Settings(BaseSettings):
         return v
 
     @field_validator(
+        "meeting_html_gcs_bucket",
         "meeting_html_s3_bucket",
         "meeting_html_public_base_url",
         mode="before",
@@ -104,6 +109,13 @@ class Settings(BaseSettings):
         if isinstance(v, str):
             s = v.strip()
             return s if s else None
+        return v
+
+    @field_validator("meeting_html_gcs_prefix", mode="before")
+    @classmethod
+    def _strip_meeting_html_gcs_prefix(cls, v: object) -> object:
+        if isinstance(v, str):
+            return v.strip().strip("/")
         return v
 
     @field_validator(
@@ -127,7 +139,11 @@ class Settings(BaseSettings):
             return v.strip().strip("/")
         return v
 
-    @field_validator("meeting_html_s3_prefix", "meeting_html_s3_region", mode="before")
+    @field_validator(
+        "meeting_html_s3_prefix",
+        "meeting_html_s3_region",
+        mode="before",
+    )
     @classmethod
     def _strip_meeting_html_parts(cls, v: object) -> object:
         if isinstance(v, str):

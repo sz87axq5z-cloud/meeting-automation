@@ -2,17 +2,17 @@
 """
 会議 ID で本番と同じパイプラインを1回実行する（手動テスト用）。
 
-  tl;dv → Claude → 要約 PNG →（設定時）HTML を S3 に配置 → Trello → Slack
+  tl;dv → Claude → 要約 PNG →（設定時）HTML を GCS または S3 に配置 → Trello → Slack
   PIPELINE_SKIP_TRELLO=1 で Trello を省略（Slack のみのテスト）
 
 使い方:
   cd meeting-automation
   .venv/bin/python scripts/run_pipeline_for_meeting.py <tl;dv会議ID>
 
-公開 HTML URL を Slack コメントに載せるには、.env に次を設定すること:
-  • MEETING_HTML_S3_BUCKET
-  • AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY（または IAM ロール）
-  任意: MEETING_HTML_S3_PREFIX, MEETING_HTML_S3_REGION, MEETING_HTML_PUBLIC_BASE_URL
+公開 HTML URL を Slack コメントに載せるには、次のいずれか:
+  • GCS（優先）: MEETING_HTML_GCS_BUCKET ＋ GOOGLE_APPLICATION_CREDENTIALS 等
+  • S3: MEETING_HTML_S3_BUCKET ＋ AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY
+  任意: MEETING_HTML_PUBLIC_BASE_URL（CDN 用）、MEETING_HTML_GCS_PREFIX / MEETING_HTML_S3_PREFIX
 
 Upstash の重複防止が有効なとき、同一会議 ID は既に処理済みだと何もせず終了する。
 """
@@ -34,7 +34,9 @@ load_dotenv(_ROOT / ".env")
 
 
 def main() -> int:
-    p = argparse.ArgumentParser(description="会議 ID で run_pipeline を実行（S3 HTML テスト可）")
+    p = argparse.ArgumentParser(
+        description="会議 ID で run_pipeline を実行（要約 HTML の GCS/S3 テスト可）",
+    )
     p.add_argument("meeting_id", help="tl;dv の会議 ID")
     p.add_argument(
         "--check-env",
@@ -49,21 +51,51 @@ def main() -> int:
 
     from app.config import settings
 
-    bucket = (settings.meeting_html_s3_bucket or "").strip()
+    gcs_bucket = (settings.meeting_html_gcs_bucket or "").strip()
+    gcs_prefix = (settings.meeting_html_gcs_prefix or "meetings").strip().strip("/")
+    s3_bucket = (settings.meeting_html_s3_bucket or "").strip()
     region = (settings.meeting_html_s3_region or "ap-northeast-1").strip()
-    base = (settings.meeting_html_public_base_url or "").strip() or (
-        f"https://{bucket}.s3.{region}.amazonaws.com" if bucket else "(未設定)"
-    )
-    prefix = (settings.meeting_html_s3_prefix or "meetings").strip().strip("/")
+    pub_base = (settings.meeting_html_public_base_url or "").strip()
 
-    print("--- 要約 HTML（S3）設定 ---", flush=True)
-    print(f"  MEETING_HTML_S3_BUCKET: {bucket or '(未設定 → HTML は Slack ファイルのみ)'}", flush=True)
-    print(f"  MEETING_HTML_S3_PREFIX: {prefix}", flush=True)
-    print(f"  MEETING_HTML_S3_REGION: {region}", flush=True)
-    print(f"  公開 URL のベース: {base}", flush=True)
-    if bucket:
+    print("--- 要約 HTML（GCS・優先） ---", flush=True)
+    print(
+        f"  MEETING_HTML_GCS_BUCKET: {gcs_bucket or '(未設定)'}",
+        flush=True,
+    )
+    print(f"  MEETING_HTML_GCS_PREFIX: {gcs_prefix}", flush=True)
+    if gcs_bucket:
         safe = re.sub(r"[^a-zA-Z0-9._-]+", "_", mid).strip("_")[:200] or "meeting"
-        print(f"  想定オブジェクト URL 例: {base.rstrip('/')}/{prefix}/{safe}.html", flush=True)
+        from urllib.parse import quote
+
+        key = f"{gcs_prefix}/{safe}.html"
+        default_gcs = f"https://storage.googleapis.com/{gcs_bucket}/{quote(key, safe='/')}"
+        if pub_base:
+            ex_url = f"{pub_base.rstrip('/')}/{quote(key, safe='/')}"
+        else:
+            ex_url = default_gcs
+        print(f"  想定公開 URL 例: {ex_url}", flush=True)
+    print("", flush=True)
+
+    print("--- 要約 HTML（S3・GCS 未設定時） ---", flush=True)
+    s3_base = pub_base or (
+        f"https://{s3_bucket}.s3.{region}.amazonaws.com" if s3_bucket else "(未設定)"
+    )
+    s3_prefix = (settings.meeting_html_s3_prefix or "meetings").strip().strip("/")
+    print(
+        f"  MEETING_HTML_S3_BUCKET: {s3_bucket or '(未設定 → GCS/S3 どちらも無ければ HTML URL なし)'}",
+        flush=True,
+    )
+    print(f"  MEETING_HTML_S3_PREFIX: {s3_prefix}", flush=True)
+    print(f"  MEETING_HTML_S3_REGION: {region}", flush=True)
+    print(f"  公開 URL のベース: {s3_base}", flush=True)
+    if s3_bucket and not gcs_bucket:
+        safe = re.sub(r"[^a-zA-Z0-9._-]+", "_", mid).strip("_")[:200] or "meeting"
+        print(
+            f"  想定オブジェクト URL 例: {s3_base.rstrip('/')}/{s3_prefix}/{safe}.html",
+            flush=True,
+        )
+    if pub_base:
+        print(f"  MEETING_HTML_PUBLIC_BASE_URL: {pub_base}", flush=True)
     print("", flush=True)
     print("--- Trello ---", flush=True)
     print(

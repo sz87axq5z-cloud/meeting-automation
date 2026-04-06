@@ -114,7 +114,8 @@ def run_pipeline(meeting_id: str) -> None:
         )
     else:
         logger.info(
-            "run_pipeline summary html no public url (set MEETING_HTML_S3_BUCKET for browser link) meeting_id=%s",
+            "run_pipeline summary html no public url "
+            "(set MEETING_HTML_GCS_BUCKET or MEETING_HTML_S3_BUCKET) meeting_id=%s",
             meeting_id,
         )
 
