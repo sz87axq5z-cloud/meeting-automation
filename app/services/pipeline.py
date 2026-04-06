@@ -1,5 +1,6 @@
 import logging
 
+from app.config import settings
 from app.services.claude_processor import summarize_and_extract_tasks
 from app.services.dedupe import mark_meeting_completed, meeting_already_completed
 from app.services.image_generator import render_summary_png
@@ -31,8 +32,6 @@ def _ensure_default_logging() -> None:
     root = logging.getLogger()
     if root.handlers:
         return
-    from app.config import settings
-
     level = getattr(logging, settings.log_level.upper(), logging.INFO)
     logging.basicConfig(level=level, format="%(levelname)s %(name)s: %(message)s")
 
@@ -40,7 +39,8 @@ def _ensure_default_logging() -> None:
 def run_pipeline(meeting_id: str) -> None:
     """
     メインの自動化フローを実行する入り口。
-    tl;dv → Claude → 要約 PNG → Trello カード → Slack（画像＋Trello リンク）。
+    tl;dv → Claude → 要約 PNG →（設定時）Trello カード → Slack（画像＋任意で Trello リンク）。
+    PIPELINE_SKIP_TRELLO 時は Trello を呼ばず Slack のみ。
     """
     _ensure_default_logging()
     logger.info("run_pipeline start meeting_id=%s", meeting_id)
@@ -120,7 +120,13 @@ def run_pipeline(meeting_id: str) -> None:
 
     task_titles = parse_tasks_from_claude_text(raw_text)
     trello_urls: list[str] = []
-    if task_titles:
+    if settings.pipeline_skip_trello:
+        logger.info(
+            "run_pipeline trello skip PIPELINE_SKIP_TRELLO meeting_id=%s tasks_parsed=%s",
+            meeting_id,
+            len(task_titles),
+        )
+    elif task_titles:
         try:
             trello_urls = create_cards_for_tasks(
                 task_titles,

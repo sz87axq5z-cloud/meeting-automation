@@ -27,6 +27,8 @@ class Settings(BaseSettings):
     trello_list_id: str
     # カンマ区切り。設定時はこの名前にマッチする担当のタスクだけ Trello にカード化（空なら全員）
     trello_assignee_filter: str | None = None
+    # true / 1 / yes のとき Trello にカードを作らず Slack まで実行（結合テスト用）
+    pipeline_skip_trello: bool = False
     webhook_secret: str
     log_level: str = "INFO"
     # 要約 PNG 用。未設定時は macOS/Linux の一般的な日本語フォントを自動検出

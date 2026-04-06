@@ -84,6 +84,47 @@ class TestPipeline(unittest.TestCase):
         self.assertEqual(kw["meeting_id"], "mid")
         self.assertEqual(kw["stage"], "tl;dv")
 
+    @patch.object(pipeline_mod, "mark_meeting_completed")
+    @patch.object(pipeline_mod, "publish_summary_html", return_value=None)
+    @patch.object(pipeline_mod, "build_summary_html_document", return_value="<html/>")
+    @patch.object(pipeline_mod, "post_meeting_summary_png", return_value="F1")
+    @patch.object(pipeline_mod, "create_cards_for_tasks")
+    @patch.object(pipeline_mod, "parse_tasks_from_claude_text", return_value=["task a"])
+    @patch.object(pipeline_mod, "render_summary_png", return_value=b"png")
+    @patch.object(
+        pipeline_mod,
+        "summarize_and_extract_tasks",
+        return_value={"raw_text": "## タスク\n1. x"},
+    )
+    @patch.object(
+        pipeline_mod,
+        "fetch_meeting_context",
+        return_value=({"name": "N"}, "hello transcript"),
+    )
+    @patch.object(pipeline_mod, "meeting_already_completed", return_value=False)
+    @patch.object(pipeline_mod, "post_pipeline_failure_message")
+    @patch.object(pipeline_mod.settings, "pipeline_skip_trello", True)
+    def test_skip_trello_does_not_call_create_cards(
+        self,
+        mock_notify: MagicMock,
+        _mock_done: MagicMock,
+        _fetch: MagicMock,
+        _claude: MagicMock,
+        _png: MagicMock,
+        _parse: MagicMock,
+        mock_create_cards: MagicMock,
+        _slack: MagicMock,
+        _build_html: MagicMock,
+        _publish_html: MagicMock,
+        mock_mark: MagicMock,
+    ) -> None:
+        pipeline_mod.run_pipeline("mid")
+        mock_create_cards.assert_not_called()
+        mock_mark.assert_called_once_with("mid")
+        mock_notify.assert_not_called()
+        skw = _slack.call_args.kwargs
+        self.assertIsNone(skw.get("trello_urls"))
+
 
 if __name__ == "__main__":
     unittest.main()

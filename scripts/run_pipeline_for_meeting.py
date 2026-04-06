@@ -3,6 +3,7 @@
 会議 ID で本番と同じパイプラインを1回実行する（手動テスト用）。
 
   tl;dv → Claude → 要約 PNG →（設定時）HTML を S3 に配置 → Trello → Slack
+  PIPELINE_SKIP_TRELLO=1 で Trello を省略（Slack のみのテスト）
 
 使い方:
   cd meeting-automation
@@ -63,6 +64,12 @@ def main() -> int:
     if bucket:
         safe = re.sub(r"[^a-zA-Z0-9._-]+", "_", mid).strip("_")[:200] or "meeting"
         print(f"  想定オブジェクト URL 例: {base.rstrip('/')}/{prefix}/{safe}.html", flush=True)
+    print("", flush=True)
+    print("--- Trello ---", flush=True)
+    print(
+        f"  PIPELINE_SKIP_TRELLO: {getattr(settings, 'pipeline_skip_trello', False)}",
+        flush=True,
+    )
     print("", flush=True)
 
     if args.check_env:
