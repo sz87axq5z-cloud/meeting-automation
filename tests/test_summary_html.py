@@ -60,6 +60,16 @@ class TestSummaryHtml(unittest.TestCase):
         self.assertIn("fonts.googleapis.com", html_out)
         self.assertIn("mermaid@11", html_out)
 
+    def test_japanese_line_break_css_present(self) -> None:
+        """要約HTMLの<style>に日本語向け折り返し（レスポンシブ）が含まれること。"""
+        html_out = build_summary_html_document(
+            {"name": "定例", "happened_at": "", "participants": []},
+            "## x\ny",
+        )
+        self.assertIn("line-break: strict", html_out)
+        self.assertIn("word-break: normal", html_out)
+        self.assertIn("overflow-wrap: break-word", html_out)
+
     def test_extract_task_list_and_embedded_block(self) -> None:
         raw = """## 決定\n- x\n\n## タスク一覧\n1. **田中** - 作業 - 4/1\n"""
         self.assertIn("1. **田中**", extract_task_list_body(raw))

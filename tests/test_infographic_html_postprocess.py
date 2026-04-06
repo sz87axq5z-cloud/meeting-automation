@@ -58,6 +58,8 @@ class TestInfographicHtmlPostprocess(unittest.TestCase):
         self.assertIn("ma-embed-tasklist", out)
         self.assertIn("N", out)
         self.assertIn("</body>", out.lower())
+        self.assertIn("ma-ja-linebreak", out)
+        self.assertIn("word-break: normal", out)
 
 
 if __name__ == "__main__":

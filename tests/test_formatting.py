@@ -6,7 +6,7 @@ _ROOT = Path(__file__).resolve().parents[1]
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
-from app.formatting import format_happened_at_display
+from app.formatting import format_happened_at_display, normalize_western_number_commas
 
 
 class TestFormatHappenedAt(unittest.TestCase):
@@ -32,6 +32,41 @@ class TestFormatHappenedAt(unittest.TestCase):
 
     def test_unparseable_passthrough(self) -> None:
         self.assertEqual(format_happened_at_display("昨日の午後"), "昨日の午後")
+
+
+class TestNormalizeWesternNumberCommas(unittest.TestCase):
+    def test_malformed_commas_fixed(self) -> None:
+        self.assertEqual(
+            normalize_western_number_commas("売上 5213,213 円"),
+            "売上 5,213,213 円",
+        )
+        self.assertEqual(
+            normalize_western_number_commas("23000,000"),
+            "23,000,000",
+        )
+
+    def test_already_correct(self) -> None:
+        self.assertEqual(
+            normalize_western_number_commas("1,234,567"),
+            "1,234,567",
+        )
+
+    def test_year_unchanged(self) -> None:
+        self.assertEqual(
+            normalize_western_number_commas("2024年の売上"),
+            "2024年の売上",
+        )
+        self.assertEqual(
+            normalize_western_number_commas("2024-03-15"),
+            "2024-03-15",
+        )
+
+    def test_small_numbers(self) -> None:
+        self.assertEqual(normalize_western_number_commas("12名"), "12名")
+        self.assertEqual(normalize_western_number_commas("第5位"), "第5位")
+
+    def test_decimal_untouched(self) -> None:
+        self.assertEqual(normalize_western_number_commas("3.14159"), "3.14159")
 
 
 if __name__ == "__main__":

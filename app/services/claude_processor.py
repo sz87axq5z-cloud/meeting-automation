@@ -53,6 +53,7 @@ flowchart TD
 2. 各 `##` の直後に本文と箇条書きを書く。箇条書きは基本「- 」で統一する。
 3. **なぜその方針が必要か・どんな問題を解くか**が伝わるように、可能な範囲で明示する。
 4. マイルストーンや締切は可能なら「4/1」「3/15」のように M/D を本文・タスク行に含める。
+4b. **金額・件数などの大きな数値**は**3桁ごとにカンマ**（例: `5,213,213`、`23,000,000`）。中途半端な区切り（`5213,213` や `23000,000` など）は禁止。
 5. 本番環境・Slack 連携などの状態が会議で決まっていれば、「本番」「Slack」など具体的な語で書く。
 6. タスクは「誰が」「何を」「いつまでに」を明確に書く。
 7. 期限が明示されていない場合は「期限未定」と書く。
@@ -90,5 +91,9 @@ flowchart TD
 
     # Claude からの返答は content の最初の text に入っている想定
     text = message.content[0].text
+
+    from app.formatting import normalize_western_number_commas
+
+    text = normalize_western_number_commas(text)
 
     return {"raw_text": text}

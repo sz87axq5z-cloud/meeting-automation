@@ -10,7 +10,7 @@ import re
 from collections import OrderedDict
 from typing import Any, Dict, List, Tuple
 
-from app.formatting import format_happened_at_display
+from app.formatting import format_happened_at_display, normalize_western_number_commas
 
 
 def _parse_summary_sections_preserve(raw: str) -> List[Tuple[str | None, str]]:
@@ -340,6 +340,7 @@ def build_summary_html_document(meeting_info: Dict[str, Any], raw_markdown: str)
     """
     共有用 HTML 全文（UTF-8 でエンコードしてアップロード想定）。
     """
+    raw_markdown = normalize_western_number_commas(raw_markdown or "")
     name = str(meeting_info.get("name") or "会議")
     happened = format_happened_at_display(meeting_info.get("happened_at"))
     participants = meeting_info.get("participants")
@@ -419,6 +420,21 @@ def build_summary_html_document(meeting_info: Dict[str, Any], raw_markdown: str)
       background: var(--bg);
       line-height: 1.75;
       font-size: 17px;
+      /* 日本語: 行頭禁則を厳めに */
+      line-break: strict;
+      word-break: normal;
+      overflow-wrap: break-word;
+    }}
+    /* 長い URL 等は折り返し許可 */
+    .body-p a,
+    .body-ul a,
+    .body-ol a,
+    .section-body a,
+    .hero-lead-wrap .body-p a,
+    .hero-lead-wrap .body-ul a,
+    .hero-lead-wrap .body-ol a {{
+      overflow-wrap: break-word;
+      word-break: break-all;
     }}
     .progress {{
       position: fixed;
@@ -454,6 +470,7 @@ def build_summary_html_document(meeting_info: Dict[str, Any], raw_markdown: str)
       font-size: clamp(1.5rem, 4vw, 2.2rem);
       line-height: 1.25;
       margin: 0 0 1rem;
+      text-wrap: balance;
     }}
     .hero-meta {{ font-size: 0.92rem; opacity: 0.88; margin: 0 0 1.25rem; }}
     .hero-lead-wrap .body-p,
@@ -484,6 +501,7 @@ def build_summary_html_document(meeting_info: Dict[str, Any], raw_markdown: str)
       display: flex;
       align-items: center;
       gap: 0.55rem;
+      text-wrap: balance;
     }}
     .sec-icon {{ width: 28px; height: 28px; flex-shrink: 0; color: var(--accent); }}
     .section-body .body-p {{ margin: 0 0 1rem; color: var(--ink); }}

@@ -23,7 +23,7 @@ import certifi
 from PIL import Image, ImageDraw, ImageFont
 
 from app.config import settings
-from app.formatting import format_happened_at_display
+from app.formatting import format_happened_at_display, normalize_western_number_commas
 
 logger = logging.getLogger(__name__)
 
@@ -1059,6 +1059,7 @@ def render_summary_png(
     width: int = DEFAULT_WIDTH,
 ) -> bytes:
     summary_text = strip_mermaid_fences_for_png(summary_text or "")
+    summary_text = normalize_western_number_commas(summary_text)
 
     lt = _layout_for(width)
     fonts = _load_font_set(width)

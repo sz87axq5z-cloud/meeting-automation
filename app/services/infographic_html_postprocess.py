@@ -9,7 +9,42 @@ import html as html_mod
 import re
 from typing import Any, Dict
 
+from app.services.infographic_ja_softbreak import apply_infographic_ja_softbreaks
 from app.services.summary_html import build_embedded_task_list_block_html
+
+# パイプライン経由の図解 HTML に、Claude が省略しがちな日本語折り返しのベースを入れる（CSS のみ）
+_JA_LINEBREAK_STYLE = """<style id="ma-ja-linebreak">
+/* meeting-automation: 日本語折り返しのベース */
+body {
+  line-break: strict;
+  word-break: normal;
+  overflow-wrap: break-word;
+}
+</style>
+"""
+
+
+def _inject_ja_linebreak_style(html: str) -> str:
+    if "ma-ja-linebreak" in html:
+        return html
+    m = re.search(r"<head[^>]*>", html, re.IGNORECASE)
+    if m:
+        pos = m.end()
+        return html[:pos] + "\n" + _JA_LINEBREAK_STYLE + html[pos:]
+    m2 = re.search(r"<html[^>]*>", html, re.IGNORECASE)
+    if m2:
+        pos = m2.end()
+        inner = '<head><meta charset="utf-8"/>\n' + _JA_LINEBREAK_STYLE + "</head>"
+        return html[:pos] + inner + html[pos:]
+    return html
+
+
+def _finalize_infographic_html(html: str) -> str:
+    try:
+        return apply_infographic_ja_softbreaks(html)
+    except Exception:
+        return html
+
 
 # 情報ソース用フッタの class に使われがちな名前（部分一致ではなくトークンとして判定）
 _SOURCE_CLASS_MARKERS = frozenset({"sources", "info-source", "source-footer", "page-sources"})
@@ -94,6 +129,7 @@ def patch_infographic_html(
     """
     情報ソースを会議名のみに差し替え、その直前にタスク一覧を挿入。
     """
+    html = _inject_ja_linebreak_style(html)
     name = str(meeting_info.get("name") or "会議")
     esc = html_mod.escape(name)
 
@@ -112,7 +148,7 @@ def patch_infographic_html(
     span = find_infographic_sources_section_span(html)
     if span is not None:
         start, end = span
-        return html[:start] + prefix + new_sources + html[end:]
+        return _finalize_infographic_html(html[:start] + prefix + new_sources + html[end:])
 
     # フッタが見つからないときは </body> 直前に追加
     insertion = prefix + new_sources
@@ -124,5 +160,5 @@ def patch_infographic_html(
         flags=re.IGNORECASE,
     )
     if n:
-        return out
-    return html + "\n" + insertion
+        return _finalize_infographic_html(out)
+    return _finalize_infographic_html(html + "\n" + insertion)

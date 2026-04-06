@@ -54,6 +54,41 @@ Line two."""
         px_top = im.getpixel((10, 10))
         self.assertLess(sum(px_top) / 3, 80)
 
+    def test_infographic_png_from_static_text_no_claude_api(self) -> None:
+        """
+        Claude / Anthropic API を呼ばず、固定の日本語要約だけで図解 PNG を生成できること。
+        （本番は Claude 出力を渡すが、レンダラ単体テストではネットワーク・API キー不要）
+        """
+        meeting = {
+            "name": "静的テスト・図解PNG",
+            "happened_at": "2026-03-29",
+            "participants": ["テスト太郎"],
+        }
+        summary = """求職者と企業をマッチングするプラットフォームでは、戦略的な運用が特徴です。良い情報が埋もれている状況です。
+
+## 決定事項
+- マッチングフローを現行のまま継続する
+
+## 課題
+- 表示幅が狭い端末での改行確認用の長い文をここに置く
+
+## タスク一覧
+1. **テスト太郎** - 動作確認 - 未定
+"""
+        fake_font = ImageFont.load_default()
+        with patch.object(
+            image_generator,
+            "_resolve_font",
+            side_effect=lambda _size: (fake_font, True),
+        ):
+            png = image_generator.render_summary_png(meeting, summary)
+
+        self.assertTrue(png.startswith(b"\x89PNG\r\n\x1a\n"))
+        self.assertGreater(len(png), 5_000)
+        im = Image.open(BytesIO(png)).convert("RGB")
+        self.assertEqual(im.width, image_generator.DEFAULT_WIDTH)
+        self.assertGreater(im.height, 400)
+
     def test_outputs_png_magic(self) -> None:
         fake_font = ImageFont.load_default()
 
